@@ -502,7 +502,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = self._box.data.body_link_pos_w[:, 0,2] > 0.3
-        # truncated = self.episode_length_buf >= self.max_episode_length -1 # 일반 환경 초기화 주기
+        # truncated = self.episode_length_buf >= self.max_episode_length - 30 # 일반 환경 초기화 주기
         truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
         
         #환경 고정
@@ -523,19 +523,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_pos,
             self.robot_grasp_rot,
             self.box_grasp_rot,
-            robot_left_finger_pos,
-            robot_right_finger_pos,
             self.gripper_forward_axis,
-            self.box_z_axis,
             self.cfg.dist_reward_scale,
             self.cfg.rot_reward_scale,
             self.cfg.action_penalty_scale,
-            self.cfg.finger_reward_scale,
         )
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)
-        # robot state
+        
+        # # robot state
         # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
         #     -0.125,
         #     0.125,
@@ -548,8 +545,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
         
         # init_joint_position (reward 함수를 위한 변수) ---------------------------------------------------
-        self.init_joint_posision = self._robot.data.joint_pos.clone()
-        self.init_gripper_pos = self.robot_grasp_pos
+        self.init_robot_joint_position = self._robot.data.joint_pos.clone()
+        self.init_robot_grasp_pos = self.robot_grasp_pos.clone()
         
         #물체 원 운동 (원 운동 시 환경 초기화 코드)-----------------------------------------------------------------------------------------------------------------
         reset_pos = self.box_center
@@ -560,15 +557,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         #물체 랜덤 위치 생성 (실제 물체 생성 코드) ------------------------------------------------------------------------------------------------------------
         pos_range = {
-            "x" : ( 0.15, 0.4),
+            "x" : ( 0.05, 0.25),
             "y" : (-0.3, 0.3),
+            "z" : ( 0.055, 0.4)
         }
         fixed_z = 0.055
         
         random_position = torch.stack([
             torch.rand(self.num_envs, device=self.device) * (pos_range["x"][1] - pos_range["x"][0]) + pos_range["x"][0],
             torch.rand(self.num_envs, device=self.device) * (pos_range["y"][1] - pos_range["y"][0]) + pos_range["y"][0],
-            torch.full((self.num_envs,), fixed_z, device=self.device) 
+            torch.rand(self.num_envs, device=self.device) * (pos_range["z"][1] - pos_range["z"][0]) + pos_range["z"][0],
         ], dim = 1)
         rand_reset_pos = self.box_center + random_position
         
@@ -645,14 +643,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos,    
         franka_grasp_rot,
         box_rot,
-        franka_lfinger_pos,
-        franka_rfinger_pos,
         gripper_forward_axis,
-        box_z_axis,
         dist_reward_scale,
         rot_reward_scale,
         action_penalty_scale,
-        finger_reward_scale,
     ):
         joint_penalty_scale = 2.0
         alignment_reward_scale = 2.0
@@ -662,14 +656,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
         # if not hasattr(self, "init_joint_posision"):
         #     self.init_joint_posision = self._robot.data.joint_pos
-        
-        # print(self.init_gripper_pos)
-        # print(self.init_joint_posision)
 
         eps = 1e-6  # NaN 방지용 작은 값
 
         # 로봇과 물체의 상대 벡터를 기반으로 최적의 잡기 축 계산
-        grasp_axis = franka_grasp_pos - box_pos  # 동적 잡기 축 결정
+        grasp_axis = self.init_robot_grasp_pos - box_pos  # 동적 잡기 축 결정
         grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)
         # print(f"box_pos : {box_pos}")
 
@@ -680,12 +671,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print(f"alignment_reward : {alignment_reward}")
         
         # 물체와 일정한 거리 유지 보상
-        target_distance = 0.1  # 10 cm
+        target_distance = 0.3  # 10 cm
         distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
         distance_reward = torch.exp(-distance_error * dist_reward_scale)
 
         # 관절 안정성 유지 (이상한 자세 방지)
-        joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_joint_posision)
+        joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
         joint_penalty = torch.sum(joint_deviation, dim=-1)
         joint_penalty = torch.tanh(joint_penalty)
 
@@ -703,9 +694,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # joint_penalty_scale = 0.1
         
-        # if not hasattr(self, "init_joint_position"):
-        #     self.init_joint_position = self._robot.data.joint_pos.clone()
-        
         # # 물체와 일정한 거리 유지 보상
         # target_distance = 0.01  # 10cm 
         # distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
@@ -713,13 +701,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # # 그리퍼 전방 축이 잡기 축과 정렬되도록 보상 적용
         # gripper_forward_vect = tf_vector(franka_grasp_rot, gripper_forward_axis)
-        # grasp_axis = (franka_grasp_pos - box_pos) 
+        # grasp_axis = box_pos - self.init_robot_grasp_pos
         # grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + 1e-6)
-        
         # rot_reward = (torch.sum(gripper_forward_vect * grasp_axis, dim=-1) + 1)/2
         
         # # 관절 안정성 유지 (이상한 자세 방지)
-        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_joint_posision)
+        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
         # joint_penalty = torch.sum(joint_deviation, dim=-1)
         # joint_threshold = 0.5  
         # joint_penalty = torch.where(
