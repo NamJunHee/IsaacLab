@@ -502,8 +502,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = self._box.data.body_link_pos_w[:, 0,2] > 0.3
-        # truncated = self.episode_length_buf >= self.max_episode_length - 30 # 물체 원운동 환경 초기화 주기
-        truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
+        truncated = self.episode_length_buf >= self.max_episode_length - 30 # 물체 원운동 환경 초기화 주기
+        # truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
         
         #환경 고정
         terminated = 0
@@ -533,16 +533,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         
         # robot state
-        # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-        #     -0.125,
-        #     0.125,
-        #     (len(env_ids), self._robot.num_joints),
-        #     self.device,
-        # )
-        # joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        # joint_vel = torch.zeros_like(joint_pos)
-        # self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-        # self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+            -0.125,
+            0.125,
+            (len(env_ids), self._robot.num_joints),
+            self.device,
+        )
+        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        joint_vel = torch.zeros_like(joint_pos)
+        self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
         
         # init_joint_position (reward 함수를 위한 변수) ---------------------------------------------------
         # self.init_robot_joint_position = self._robot.data.joint_pos.clone()
