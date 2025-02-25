@@ -502,8 +502,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = self._box.data.body_link_pos_w[:, 0,2] > 0.3
-        truncated = self.episode_length_buf >= self.max_episode_length - 30 # 물체 원운동 환경 초기화 주기
-        # truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
+        # truncated = self.episode_length_buf >= self.max_episode_length - 30 # 물체 원운동 환경 초기화 주기
+        truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
         
         #환경 고정
         terminated = 0
@@ -524,6 +524,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.robot_grasp_rot,
             self.box_grasp_rot,
             self.gripper_forward_axis,
+            self.gripper_up_axis,
             self.cfg.dist_reward_scale,
             self.cfg.rot_reward_scale,
             self.cfg.action_penalty_scale,
@@ -533,16 +534,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         
         # robot state
-        joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            -0.125,
-            0.125,
-            (len(env_ids), self._robot.num_joints),
-            self.device,
-        )
-        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        joint_vel = torch.zeros_like(joint_pos)
-        self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+        #     -0.125,
+        #     0.125,
+        #     (len(env_ids), self._robot.num_joints),
+        #     self.device,
+        # )
+        # joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        # joint_vel = torch.zeros_like(joint_pos)
+        # self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+        # self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
         
         # init_joint_position (reward 함수를 위한 변수) ---------------------------------------------------
         # self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -559,7 +560,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         pos_range = {
             "x" : ( 0.05, 0.25),
             "y" : (-0.3, 0.3),
-            "z" : ( 0.055, 0.4)
+            "z" : ( 0.055, 0.3)
         }
         fixed_z = 0.055
         
@@ -644,53 +645,171 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         franka_grasp_rot,
         box_rot,
         gripper_forward_axis,
+        gripper_up_axis,
         dist_reward_scale,
         rot_reward_scale,
         action_penalty_scale,
     ):
-        joint_penalty_scale = 5.0
-        alignment_reward_scale = 3.0
+        joint_penalty_scale = 10.0
+        alignment_reward_scale = 10.0
         
         if not hasattr(self, "init_robot_grasp_pos"):
             self.init_robot_grasp_pos = franka_grasp_pos.clone()  # 환경 초기 그리퍼 위치 저장
             
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
+            
+        if not hasattr(self, "init_robot_grasp_rot"):
+            self.init_robot_grasp_rot = franka_grasp_rot.clone()
         
         eps = 1e-6  # NaN 방지용 작은 값
         
-        # 물체와 일정한 거리 유지 보상
-        target_distance = 0.3  # 10 cm
+        # tracking은 잘 됨
+        # ✅ 1. 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
+        target_distance = 0.2  # 목표 거리 (예: 20cm)
         distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
         distance_reward = torch.exp(-distance_error * dist_reward_scale)
-        
-        # 로봇과 물체의 상대 벡터를 기반으로 최적의 잡기 축 계산
-        grasp_axis = self.init_robot_grasp_pos - box_pos  # 동적 잡기 축 결정
-        grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)
-        # print(f"box_pos : {box_pos}")
 
-        # 그리퍼 전방 축이 잡기 축과 정렬되도록 보상 적용
-        gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)  # 그리퍼 전방 축 벡터
-        alignment = torch.sum(gripper_forward * grasp_axis, dim=-1)  # [-1, 1] 범위
-        grasp_axis = torch.where(alignment.view(-1, 1) < 0, -grasp_axis, grasp_axis)  # 반대 방향이면 뒤집음
-        alignment_reward = (torch.sum(gripper_forward * grasp_axis, dim=-1) + 1) / 2  # 정규화
+        # 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터)
+        # grasp_axis = box_pos - self.init_robot_grasp_pos
+        grasp_axis = self.init_robot_grasp_pos - box_pos
+        grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)  # 정규화
 
-        # 관절 안정성 유지 (이상한 자세 방지)
+        # 그리퍼 전방축과 잡기축 정렬 보상
+        gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
+        alignment_score = torch.sum(gripper_forward * grasp_axis, dim=-1)  # 내적 계산
+        alignment_reward = (alignment_score + 1) / 2  # [-1,1] → [0,1] 변환
+
+        # 그리퍼 위치가 잡기축 위에 있는지 확인
+        gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - self.init_robot_grasp_pos, grasp_axis), p=2, dim=-1)
+        position_alignment_reward = torch.exp(-gripper_proj_dist * alignment_reward_scale)  # 잡기축 벗어나면 패널티
+
+        # 최종 정렬 보상
+        total_alignment_reward = 0.7 * alignment_reward + 0.3 * position_alignment_reward
+
+        # ✅ 3. 그리퍼가 초기 자세에서 많이 벗어날수록 패널티 적용 (이상한 자세 방지)
         joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
         joint_penalty = torch.sum(joint_deviation, dim=-1)
         joint_penalty = torch.tanh(joint_penalty)
 
-        # 행동 패널티 (불필요한 움직임 최소화)
-        action_penalty = torch.sum(actions**2, dim=-1)
-        action_penalty = torch.tanh(action_penalty)
+        # ✅ 4. 행동 크기가 클수록 패널티 적용 (이상한 행동 방지)
+        action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
 
-        # 최종 보상 계산
+        # ✅ 5. 최종 보상 계산
         rewards = (
-            dist_reward_scale * distance_reward  # 목표 거리 유지 보상
-            + alignment_reward_scale * alignment_reward  # 동적으로 결정된 잡기 축과 정렬 보상
-            - joint_penalty_scale * joint_penalty  # 이상한 자세 방지
-            - action_penalty_scale * action_penalty  # 불필요한 움직임 최소화
+            dist_reward_scale * distance_reward  # 거리 유지 보상
+            + alignment_reward_scale * total_alignment_reward  # 정렬 보상
+            - joint_penalty_scale * joint_penalty  # 자세 안정성 패널티
+            - action_penalty_scale * action_penalty  # 행동 크기 패널티
         )
+
+        return rewards
+        
+        # # ✅ 물체와 일정한 거리 유지 보상
+        # target_distance = 0.2  # 20cm
+        # distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
+        # distance_reward = torch.exp(-distance_error * (dist_reward_scale * 0.5))
+
+        # # ✅ 그리퍼 전방 축이 물체를 바라보도록 정렬 보상
+        # grasp_axis = self.init_robot_grasp_pos - box_pos  
+        # grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)
+
+        # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)  
+        # alignment = torch.sum(gripper_forward * grasp_axis, dim=-1)  
+        # grasp_axis = torch.where(alignment.view(-1, 1) < 0, -grasp_axis, grasp_axis)  
+        # alignment_reward = (torch.sum(gripper_forward * grasp_axis, dim=-1) + 1) / 2  
+
+        # # ✅ 추가된 코드: 그리퍼 위쪽 축(Up Axis)이 자연스럽게 위쪽을 바라보도록 유도
+        # gripper_up = tf_vector(franka_grasp_rot, gripper_up_axis)  
+
+        # # 📌 그리퍼 위쪽 축이 자연스럽게 위쪽을 향하도록 보상 부여
+        # desired_up_direction = torch.cross(grasp_axis, gripper_forward)  
+        # desired_up_direction = desired_up_direction / (torch.norm(desired_up_direction, p=2, dim=-1, keepdim=True) + eps)
+
+        # up_alignment = torch.sum(gripper_up * desired_up_direction, dim=-1)  
+        # up_alignment = torch.clamp(up_alignment, -1, 1)  
+        # up_alignment_reward = (up_alignment + 1) / 2  
+
+        # # ✅ 기존 alignment_reward와 up_alignment_reward를 결합하여 최종 정렬 보상
+        # alignment_reward = 0.7 * alignment_reward + 0.3 * up_alignment_reward
+
+        # # ✅ 관절 안정성 유지 패널티
+        # joint_penalty = torch.exp(-torch.sum(torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position), dim=-1) * 3.0)
+
+        # # ✅ 행동 패널티
+        # action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
+
+        # # ✅ 최종 보상 계산
+        # rewards = (
+        #     dist_reward_scale * distance_reward  
+        #     + alignment_reward_scale * alignment_reward  
+        #     - joint_penalty_scale * joint_penalty  
+        #     - action_penalty_scale * action_penalty  
+        # )
+
+        # # ✅ 물체와 일정한 거리 유지 보상 수정
+        # target_distance = 0.2  # 10cm
+        # distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
+        # distance_reward = torch.exp(-distance_error * (dist_reward_scale * 0.5))
+
+        # # ✅ Alignment 보상 수정 (절대값 활용)
+        # grasp_axis = self.init_robot_grasp_pos - box_pos  
+        # grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)
+
+        # # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
+        # # alignment_reward = (torch.abs(torch.sum(gripper_forward * grasp_axis, dim=-1)) + 1) / 2
+        
+        # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)  # 그리퍼 전방 축 벡터
+        # alignment = torch.sum(gripper_forward * grasp_axis, dim=-1)  # [-1, 1] 범위
+        # grasp_axis = torch.where(alignment.view(-1, 1) < 0, -grasp_axis, grasp_axis)  # 반대 방향이면 뒤집음
+        # alignment_reward = (torch.sum(gripper_forward * grasp_axis, dim=-1) + 1) / 2  # 정규화
+
+        # # ✅ 관절 안정성 유지 패널티 수정 (패널티 강도 증가)
+        # joint_penalty = torch.exp(-torch.sum(torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position), dim=-1) * 3.0)
+
+        # # ✅ 행동 패널티 수정 (효과 증가)
+        # action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
+
+        # # ✅ 최종 보상 계산
+        # rewards = (
+        #     dist_reward_scale * distance_reward  # 목표 거리 유지 보상
+        #     + alignment_reward_scale * alignment_reward  # 동적으로 결정된 잡기 축과 정렬 보상
+        #     - joint_penalty_scale * joint_penalty  # 이상한 자세 방지
+        #     - action_penalty_scale * action_penalty  # 불필요한 움직임 최소화
+        # )
+
+        # 물체와 일정한 거리 유지 보상
+        # target_distance = 0.25  # 10 cm
+        # distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
+        # distance_reward = torch.exp(-distance_error * dist_reward_scale)
+        
+        # # 로봇과 물체의 상대 벡터를 기반으로 최적의 잡기 축 계산
+        # grasp_axis = self.init_robot_grasp_pos - box_pos  # 동적 잡기 축 결정
+        # grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)
+        # # print(f"box_pos : {box_pos}")
+
+        # # 그리퍼 전방 축이 잡기 축과 정렬되도록 보상 적용
+        # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)  # 그리퍼 전방 축 벡터
+        # alignment = torch.sum(gripper_forward * grasp_axis, dim=-1)  # [-1, 1] 범위
+        # grasp_axis = torch.where(alignment.view(-1, 1) < 0, -grasp_axis, grasp_axis)  # 반대 방향이면 뒤집음
+        # alignment_reward = (torch.sum(gripper_forward * grasp_axis, dim=-1) + 1) / 2  # 정규화
+
+        # # 관절 안정성 유지 (이상한 자세 방지)
+        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
+        # joint_penalty = torch.sum(joint_deviation, dim=-1)
+        # joint_penalty = torch.tanh(joint_penalty)
+
+        # # 행동 패널티 (불필요한 움직임 최소화)
+        # action_penalty = torch.sum(actions**2, dim=-1)
+        # action_penalty = torch.tanh(action_penalty)
+
+        # # 최종 보상 계산
+        # rewards = (
+        #     dist_reward_scale * distance_reward  # 목표 거리 유지 보상
+        #     + alignment_reward_scale * alignment_reward  # 동적으로 결정된 잡기 축과 정렬 보상
+        #     - joint_penalty_scale * joint_penalty  # 이상한 자세 방지
+        #     - action_penalty_scale * action_penalty  # 불필요한 움직임 최소화
+        # )
         
         # if not hasattr(self, "init_robot_grasp_pos"):
         #     self.init_robot_grasp_pos = franka_grasp_pos.clone()  # 환경 초기 그리퍼 위치 저장
