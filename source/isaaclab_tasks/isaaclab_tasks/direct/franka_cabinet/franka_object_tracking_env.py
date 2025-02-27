@@ -339,7 +339,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.box_z_axis = torch.tensor([0,0,1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs,1)
         )
-
+        
         self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
         self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
         self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
@@ -357,6 +357,27 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.box_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.box_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
         self.box_center = self._box.data.body_link_pos_w[:,0,:].clone()
+        
+        # 물체 랜덤 이동 변수 -------------------------------------
+        self.rand_pos_range = {
+            "x" : (  -0.5, 0.5),
+            "y" : (  -0.5, 0.5),
+            "z" : ( 0.055, 0.4)
+        }
+        self.fixed_z = 0.055
+        
+        self.current_box_pos = None
+        self.current_box_rot = None
+        self.target_box_pos = torch.stack([
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+        ], dim = 1)
+        
+        self.target_box_pos = self.target_box_pos + self.box_center
+        self.rand_pos_step = 0
+        self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
+        self.speed = 0.003
         
         rclpy.init()
         # self.node = rclpy.create_node('isaac_camera_publisher')
@@ -477,22 +498,50 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
                 
         # 물체 원 운동 (실제 운동 제어 코드)---------------------------------------------------------------------------------------------------------------
-        R = 0.15
-        omega = 1.5
-        # noise_level = 0.02
-        # random_noise = (torch.rand(3, device=self.device) * 2 - 1) * noise_level
-        
-        offset_x = R * torch.cos(omega * current_time) #+ random_noise[0]
-        offset_y = R * torch.sin(omega * current_time) #+ random_noise[1]
+        R = 0.2
+        omega = 1.0
+                
+        offset_x = R * torch.cos(omega * current_time) - 0.1
+        offset_y = R * torch.sin(omega * current_time) 
         offset_z = 0.055
         
         offset_pos = torch.tensor([offset_x, offset_y, offset_z], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         
-        new_pos = self.box_center + offset_pos
-        new_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
+        new_box_pos_circle = self.box_center + offset_pos
+        new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         
-        new_box_pose = torch.cat([new_pos, new_rot], dim = -1)
-        # self._box.write_root_pose_to_sim(new_box_pose)    
+        new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
+        # self._box.write_root_pose_to_sim(new_box_pose_circle)
+        
+        # 물체 무작위 이동 -----------------------------------------------------------------------------------------------------------------------------
+        distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
+        
+        if torch.any(distance_to_target < 0.001):
+            
+            self.target_box_pos = torch.stack([
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+            ], dim = 1)
+            
+            self.target_box_pos = self.target_box_pos + self.box_center
+            
+            self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
+            self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+
+            self.new_box_pos_rand = self.current_box_pos
+
+            direction = self.target_box_pos - self.current_box_pos
+            direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+            self.rand_pos_step = (direction / direction_norm * self.speed)
+            
+        self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
+        new_box_rot_rand = self.current_box_rot 
+        
+        # print(f"new_box_pos_rand : {self.new_box_pos_rand}")
+        
+        new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim = -1)
+        self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
         # print("robot_stop")
@@ -533,43 +582,32 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)
         
-        # # robot state
-        joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            -0.125,
-            0.125,
-            (len(env_ids), self._robot.num_joints),
-            self.device,
-        )
-        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        joint_vel = torch.zeros_like(joint_pos)
-        self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        # robot state ---------------------------------------------------------------------------------
+        # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+        #     -0.125,
+        #     0.125,
+        #     (len(env_ids), self._robot.num_joints),
+        #     self.device,
+        # )
+        # joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        # joint_vel = torch.zeros_like(joint_pos)
+        # self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+        # self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
         
-        # init_joint_position (reward 함수를 위한 변수) ---------------------------------------------------
-        # self.init_robot_joint_position = self._robot.data.joint_pos.clone()
-        # self.init_robot_grasp_pos = self.robot_grasp_pos.clone()
-        
-        #물체 원 운동 (원 운동 시 환경 초기화 코드)-----------------------------------------------------------------------------------------------------------------
+        # 물체 원 운동 (원 운동 시 환경 초기화 코드)------------------------------------------------------------------------------------------------------------
         reset_pos = self.box_center
         reset_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         reset_box_pose = torch.cat([reset_pos, reset_rot], dim = -1)
         
         # self._box.write_root_pose_to_sim(reset_box_pose)
         
-        #물체 랜덤 위치 생성 (실제 물체 생성 코드) ------------------------------------------------------------------------------------------------------------
-        pos_range = {
-            "x" : (  -0.3, 0.35),
-            "y" : (  -0.45, 0.5),
-            "z" : ( 0.055, 0.3 )
-        }
-        fixed_z = 0.055
-        
-        random_position = torch.stack([
-            torch.rand(self.num_envs, device=self.device) * (pos_range["x"][1] - pos_range["x"][0]) + pos_range["x"][0],
-            torch.rand(self.num_envs, device=self.device) * (pos_range["y"][1] - pos_range["y"][0]) + pos_range["y"][0],
-            torch.rand(self.num_envs, device=self.device) * (pos_range["z"][1] - pos_range["z"][0]) + pos_range["z"][0],
+        # 물체 랜덤 위치 생성 (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
+        self.rand_pos = torch.stack([
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
+            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
         ], dim = 1)
-        rand_reset_pos = self.box_center + random_position
+        rand_reset_pos = self.box_center + self.rand_pos
         
         random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
         rand_reset_rot = torch.stack([
@@ -582,9 +620,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
 
-        self._box.write_root_pose_to_sim(rand_reset_box_pose)
+        # self._box.write_root_pose_to_sim(rand_reset_box_pose)
         self._box.write_root_velocity_to_sim(zero_root_velocity)
         
+        # 물체 랜덤 위치 이동-------------------------------------------------------------------------------------------------------------------------------
+        self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
+        self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+        
+        # self.new_box_pos_rand = self.current_box_pos
+        # self.target_box_pos = self.rand_pos
+        
+        direction = self.target_box_pos - self.new_box_pos_rand
+        direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+        self.rand_pos_step = (direction / direction_norm * self.speed)
+               
         self.cfg.current_time = 0
         self._compute_intermediate_values(env_ids)
 
