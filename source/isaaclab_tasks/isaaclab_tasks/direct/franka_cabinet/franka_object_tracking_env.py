@@ -37,6 +37,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 
+import kornia
+
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     # env
@@ -179,24 +181,24 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     )
     
     #카메라
-    # camera = CameraCfg(
-    #     prim_path="/World/envs/env_.*/Robot/panda_hand/hand_camera", 
-    #     update_period=0.1,
-    #     height=480,
-    #     width=640,
-    #     data_types=["rgb", "depth"],
-    #     spawn=sim_utils.PinholeCameraCfg(
-    #         focal_length=45.0,
-    #         focus_distance=800.0,
-    #         horizontal_aperture=50.0,
-    #         clipping_range=(0.1, 1.0e5),
-    #     ),
-    #     offset=CameraCfg.OffsetCfg(
-    #         pos=(0.0, 0.0, 0.05),
-    #         rot=(0.0, 0.707, 0.707, 0.0),
-    #         convention="ROS",
-    #     )
-    # )
+    camera = CameraCfg(
+        prim_path="/World/envs/env_.*/Robot/panda_hand/hand_camera", 
+        update_period=0.1,
+        height=480,
+        width=640,
+        data_types=["rgb", "depth"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=15.0,
+            focus_distance=800.0,
+            horizontal_aperture=50.0,
+            clipping_range=(0.1, 1.0e5),
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.05),
+            rot=(0.0, 0.707, 0.707, 0.0),
+            convention="ROS",
+        )
+    )
     
     #큐브
     cube = RigidObjectCfg(
@@ -381,18 +383,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         rclpy.init()
         
-        # #카메라 설정
-        # self.node = rclpy.create_node('isaac_camera_publisher')
-        # self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
-        # self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
-        # self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
+        #카메라 설정
+        self.node = rclpy.create_node('isaac_camera_publisher')
+        self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
+        self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
+        self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
         
-        # self.node = rclpy.create_node('camera_publisher')
-        # self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/camera_info_rect',10)
-        # self.rgb_publisher = self.node.create_publisher(Image, '/image_rect',10)
-        # self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
-        # self.bridge = CvBridge()
-        # self.timer = self.node.create_timer(0.1, self.publish_camera_data)
+        self.node = rclpy.create_node('camera_publisher')
+        self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/camera_info_rect',10)
+        self.rgb_publisher = self.node.create_publisher(Image, '/image_rect',10)
+        self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
+        self.bridge = CvBridge()
+        self.timer = self.node.create_timer(0.1, self.publish_camera_data)
         
     def publish_camera_data(self):
         env_id = 0
@@ -460,7 +462,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # depth_msg.step = depth_image.shape[1] * 4
         # # self.node.get_logger().info('Published Depth image')
     
-    def _sample_target_box_pos(self):
+    def sample_target_box_pos(self):
         
         self.rand_pos_range_center = {
             "x" : (-0.1, 0.2),
@@ -508,7 +510,53 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.speed = 0.003
         
         return target_box_pos
-                
+    
+    def quat_mul(self, q, r):
+        x1, y1, z1, w1 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+        x2, y2, z2, w2 = r[:, 0], r[:, 1], r[:, 2], r[:, 3]
+
+        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+        y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+        z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+
+        quat = torch.stack((x, y, z, w), dim=-1)
+        return kornia.geometry.quaternion.normalize_quaternion(quat)
+    
+    def quat_conjugate(self, q):
+        """
+        쿼터니언 켤레(Conjugate)를 반환
+        Args:
+        - q: (batch_size, 4)
+        Returns:
+        - conjugate_q: (batch_size, 4)
+        """
+        q_conj = torch.cat([-q[:, :3], q[:, 3:4]], dim=-1)
+        return q_conj
+    
+    def compute_camera_world_pose(self, hand_pos, hand_rot):
+        cam_offset_pos = torch.tensor([0.0, 0.0, 0.05], device=hand_pos.device).repeat(self.num_envs, 1)
+
+        hand_rot_matrix = kornia.geometry.quaternion.quaternion_to_rotation_matrix(hand_rot)
+        cam_offset_pos_world = torch.bmm(hand_rot_matrix, cam_offset_pos.unsqueeze(-1)).squeeze(-1)
+
+        camera_pos_w = hand_pos + cam_offset_pos_world
+        camera_pos_w = camera_pos_w - self.scene.env_origins
+
+        return camera_pos_w
+
+    def world_to_camera_pose(self, camera_pos_w, camera_rot_w, obj_pos_w, obj_rot_w):
+        rel_pos = obj_pos_w - camera_pos_w
+
+        cam_rot_matrix = kornia.geometry.quaternion.quaternion_to_rotation_matrix(camera_rot_w)
+
+        obj_pos_cam = torch.bmm(cam_rot_matrix.transpose(1, 2), rel_pos.unsqueeze(-1)).squeeze(-1)
+
+        cam_rot_inv = self.quat_conjugate(camera_rot_w)
+        obj_rot_cam = self.quat_mul(cam_rot_inv, obj_rot_w)
+
+        return obj_pos_cam, obj_rot_cam
+    
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
     
@@ -526,9 +574,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
         
-        # # 카메라 추가
-        # self._camera = Camera(self.cfg.camera)
-        # self.scene.sensors["hand_camera"] = self._camera
+        # 카메라 추가
+        self._camera = Camera(self.cfg.camera)
+        self.scene.sensors["hand_camera"] = self._camera
         
         # 큐브 추가
         # self._cube = RigidObject(self.cfg.cube)
@@ -552,8 +600,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self.publish_camera_data()
                 
         # 물체 원 운동 (실제 운동 제어 코드)---------------------------------------------------------------------------------------------------------------
-        R = 0.2
-        omega = 1.0
+        R = 0.3
+        omega = 0.7
                 
         offset_x = R * torch.cos(omega * current_time) - 0.1
         offset_y = R * torch.sin(omega * current_time) 
@@ -565,7 +613,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         
         new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
-        # self._box.write_root_pose_to_sim(new_box_pose_circle)
+        self._box.write_root_pose_to_sim(new_box_pose_circle)
         
         # 물체 무작위 이동 -----------------------------------------------------------------------------------------------------------------------------
         # distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
@@ -597,8 +645,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
-        # print("robot_stop")
-        self._robot.set_joint_position_target(self.robot_dof_targets)
+        print("robot_stop")
+        # print(f"robot_dof_targets : {self.robot_dof_targets}")
+        # self.robot_dof_targets[:, -1] = 0.707
+        # self._robot.set_joint_position_target(self.robot_dof_targets)
         
     # post-physics step calls
 
@@ -619,12 +669,21 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         robot_left_finger_pos = self._robot.data.body_link_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_link_pos_w[:, self.right_finger_link_idx]
 
+        camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
+        camera_rot_w = self.robot_grasp_rot
+        
+        box_pos_cam, box_rot_cam = self.world_to_camera_pose(
+            camera_pos_w, camera_rot_w,
+            self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
+        )
+        
         return self._compute_rewards(
             self.actions,
             self.robot_grasp_pos,
             self.box_grasp_pos,
             self.robot_grasp_rot,
             self.box_grasp_rot,
+            box_pos_cam,
             self.gripper_forward_axis,
             self.gripper_up_axis,
             self.cfg.dist_reward_scale,
@@ -652,7 +711,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         reset_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         reset_box_pose = torch.cat([reset_pos, reset_rot], dim = -1)
         
-        # self._box.write_root_pose_to_sim(reset_box_pose)
+        self._box.write_root_pose_to_sim(reset_box_pose)
         
         # 물체 랜덤 위치 생성 (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
         self.rand_pos = torch.stack([
@@ -674,7 +733,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
 
-        self._box.write_root_pose_to_sim(rand_reset_box_pose)
+        # self._box.write_root_pose_to_sim(rand_reset_box_pose)
         self._box.write_root_velocity_to_sim(zero_root_velocity)
         
         # 물체 랜덤 위치 이동----------------------------------------------------------------
@@ -722,8 +781,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         hand_pos = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
         hand_rot = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
         
-        box_pos = self._box.data.body_link_pos_w[env_ids, self.box_idx]
-        box_rot = self._box.data.body_link_quat_w[env_ids, self.box_idx]
+        box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx]
+        box_rot_world = self._box.data.body_link_quat_w[env_ids, self.box_idx]
+        
+        # camera_pos_w = self.compute_camera_world_pose(hand_pos, hand_rot)
+        # camera_rot_w = self.robot_grasp_rot
+        
+        # box_pos_cam, box_rot_cam = self.world_to_camera_pose(
+        #     camera_pos_w, camera_rot_w,
+        #     box_pos_world - self.scene.env_origins, box_rot_world,
+        # )
+        
+        # # print(f"box_pos_cam : {box_pos_cam}")
         
         (
             self.robot_grasp_rot[env_ids],
@@ -735,8 +804,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             hand_pos,
             self.robot_local_grasp_rot[env_ids],
             self.robot_local_grasp_pos[env_ids],
-            box_rot,
-            box_pos,
+            box_rot_world,
+            box_pos_world,
             self.box_local_rot[env_ids],
             self.box_local_pos[env_ids],
         )
@@ -754,8 +823,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         rot_reward_scale,
         action_penalty_scale,
     ):
-        joint_penalty_scale = 10.0
+        joint_penalty_scale = 3.0
         alignment_reward_scale = 10.0
+        camera_roll_reward_scale = 7.0
+        distance_reward_scale = 12.0
         
         if not hasattr(self, "init_robot_grasp_pos"):
             self.init_robot_grasp_pos = franka_grasp_pos.clone()  
@@ -768,17 +839,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         eps = 1e-6  # NaN 방지용 작은 값
         
-        # tracking 잘됨
-        # ✅ 1. 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
+        # 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
         target_distance = 0.25  # 목표 거리 (예: 20cm)
         distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
-        distance_reward = torch.exp(-distance_error * dist_reward_scale)
-        
-        # distance_reward = torch.where(
-        #     distance_error < 0.02,  # 오차가 2cm 이하일 때
-        #     torch.tensor(1.0, device=distance_error.device),  # 최대 보상
-        #     torch.exp(-distance_error * dist_reward_scale)  # 기존 보상 함수 적용
-        # )       
+        distance_reward = torch.exp(-distance_error)     
 
         # 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터)
         grasp_axis = box_pos - self.init_robot_grasp_pos
@@ -803,14 +867,93 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # 행동 크기가 클수록 패널티 적용 (이상한 행동 방지)
         action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
+        
+        # 전방축과 업축 계산
+        gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
+        gripper_up = tf_vector(franka_grasp_rot, gripper_up_axis)
 
-        # 5. 최종 보상 계산
+        # 월드 업 축 (지면 위 방향)
+        world_up = torch.tensor([0.0, 0.0, 1.0], device=self.device).repeat((self.num_envs, 1))
+
+        # forward 축 기준으로 world_up을 projection 하고 수직평면 기준축 생성
+        up_projection_on_forward = torch.sum(world_up * gripper_forward, dim=-1, keepdim=True) * gripper_forward
+        reference_up = world_up - up_projection_on_forward
+        reference_up = reference_up / (torch.norm(reference_up, dim=-1, keepdim=True) + eps)
+
+        # gripper_up이 reference_up과 정렬되면 roll이 없는 상태
+        roll_alignment_score = torch.sum(gripper_up * reference_up, dim=-1)  # [-1, 1]
+        # roll_alignment_reward = (roll_alignment_score + 1) / 2  # [0, 1]
+        
+        roll_alignment_tolerance = 0.1  # 허용 오차
+        roll_alignment_reward = torch.where(
+            roll_alignment_score > (1 - roll_alignment_tolerance),
+            torch.tensor(1.0, device=self.device),
+            (roll_alignment_score + 1) / 2
+        )
+
+        # 최종 보상 계산
         rewards = (
-            dist_reward_scale * distance_reward  # 거리 유지 보상
+            distance_reward_scale * distance_reward  # 거리 유지 보상
             + alignment_reward_scale * total_alignment_reward  # 정렬 보상
             - joint_penalty_scale * joint_penalty  # 자세 안정성 패널티
             - action_penalty_scale * action_penalty  # 행동 크기 패널티
+            + camera_roll_reward_scale * roll_alignment_reward
         )
+
+        # tracking은 잘되는 보상 함수(단, 카메라 시야 수평 고정 x)
+        # if not hasattr(self, "init_robot_grasp_pos"):
+        #     self.init_robot_grasp_pos = franka_grasp_pos.clone()  
+            
+        # if not hasattr(self, "init_robot_joint_position"):
+        #     self.init_robot_joint_position = self._robot.data.joint_pos.clone()
+            
+        # if not hasattr(self, "init_robot_grasp_rot"):
+        #     self.init_robot_grasp_rot = franka_grasp_rot.clone()
+        
+        # eps = 1e-6  # NaN 방지용 작은 값
+        
+        # # 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
+        # target_distance = 0.25  # 목표 거리 (예: 20cm)
+        # distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos, p=2, dim=-1) - target_distance)
+        # distance_reward = torch.exp(-distance_error * dist_reward_scale)
+        
+        # # distance_reward = torch.where(
+        # #     distance_error < 0.02,  # 오차가 2cm 이하일 때
+        # #     torch.tensor(1.0, device=distance_error.device),  # 최대 보상
+        # #     torch.exp(-distance_error * dist_reward_scale)  # 기존 보상 함수 적용
+        # # )       
+
+        # # 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터)
+        # grasp_axis = box_pos - self.init_robot_grasp_pos
+        # grasp_axis = grasp_axis / (torch.norm(grasp_axis, p=2, dim=-1, keepdim=True) + eps)  # 정규화
+
+        # # 그리퍼 전방축과 잡기축 정렬 보상
+        # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
+        # alignment_score = torch.sum(gripper_forward * grasp_axis, dim=-1)  # 내적 계산
+        # alignment_reward = (alignment_score + 1) / 2  # [-1,1] → [0,1] 변환
+        
+        # # 그리퍼 위치가 잡기축 위에 있는지 확인
+        # gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - self.init_robot_grasp_pos, grasp_axis, dim=-1), p=2, dim=-1)
+        # position_alignment_reward = torch.exp(-gripper_proj_dist * alignment_reward_scale)  # 잡기축 벗어나면 패널티
+
+        # # 최종 정렬 보상
+        # total_alignment_reward = 0.7 * alignment_reward + 0.3 * position_alignment_reward
+
+        # # 그리퍼가 초기 자세에서 많이 벗어날수록 패널티 적용 (이상한 자세 방지)
+        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
+        # joint_penalty = torch.sum(joint_deviation, dim=-1)
+        # joint_penalty = torch.tanh(joint_penalty)
+
+        # # 행동 크기가 클수록 패널티 적용 (이상한 행동 방지)
+        # action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
+
+        # # 5. 최종 보상 계산
+        # rewards = (
+        #     dist_reward_scale * distance_reward  # 거리 유지 보상
+        #     + alignment_reward_scale * total_alignment_reward  # 정렬 보상
+        #     - joint_penalty_scale * joint_penalty  # 자세 안정성 패널티
+        #     - action_penalty_scale * action_penalty  # 행동 크기 패널티
+        # )
 
         return rewards
         
