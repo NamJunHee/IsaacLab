@@ -31,6 +31,7 @@ from builtin_interfaces.msg import Time
 # from PIL import Image
 import cv2
 import numpy as np
+from enum import Enum
 
 import rclpy
 from rclpy.node import Node
@@ -39,9 +40,17 @@ from cv_bridge import CvBridge
 
 import kornia
 
-camera_enable = False
-training_mode = True
+camera_enable = True
+training_mode = False
 
+class ObjectMoveType(Enum):
+    STATIC = "static"
+    CIRCLE = "circle"
+    LINEAR = "linear"
+
+object_move = ObjectMoveType.LINEAR
+
+    
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     # env
@@ -605,7 +614,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self.publish_camera_data()
                 
         # 물체 원 운동 (실제 운동 제어 코드)---------------------------------------------------------------------------------------------------------------
-        R = 0.3
+        R = 0.2
         omega = 0.7
                 
         offset_x = R * torch.cos(omega * current_time) - 0.1
@@ -618,36 +627,39 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         
         new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
-        # self._box.write_root_pose_to_sim(new_box_pose_circle)
         
-        # 물체 무작위 이동 -----------------------------------------------------------------------------------------------------------------------------
-        # distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
+        if object_move == ObjectMoveType.CIRCLE:
+            self._box.write_root_pose_to_sim(new_box_pose_circle)
         
-        # # print(f"distance_to_target : {distance_to_target}")
-        # if torch.any(distance_to_target < 0.01):
-            
-        #     self.target_box_pos = torch.stack([
-        #     torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
-        #     torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
-        #     torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
-        #     ], dim = 1)
-            
-        #     self.target_box_pos = self.target_box_pos + self.box_center
-            
-        #     self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
-        #     self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+        # 물체 위치 랜덤 선형 이동 --------------------------------------------------------------------------------------------------
+        if object_move == ObjectMoveType.LINEAR:
+            distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
 
-        #     self.new_box_pos_rand = self.current_box_pos
+            # print(f"distance_to_target : {distance_to_target}")
+            if torch.any(distance_to_target < 0.01):
 
-        #     direction = self.target_box_pos - self.current_box_pos
-        #     direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-        #     self.rand_pos_step = (direction / direction_norm * self.speed)
-            
-        # self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
-        # new_box_rot_rand = self.current_box_rot 
-                
-        # new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim = -1)
-        # self._box.write_root_pose_to_sim(new_box_pose_rand)
+                self.target_box_pos = torch.stack([
+                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
+                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
+                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+                ], dim = 1)
+
+                self.target_box_pos = self.target_box_pos + self.box_center
+
+                self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
+                self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+
+                self.new_box_pos_rand = self.current_box_pos
+
+                direction = self.target_box_pos - self.current_box_pos
+                direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+                self.rand_pos_step = (direction / direction_norm * self.speed)
+
+            self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
+            new_box_rot_rand = self.current_box_rot 
+
+            new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim = -1)
+            self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
         # print("robot_stop")
@@ -660,12 +672,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = self._box.data.body_link_pos_w[:, 0,2] > 0.3
         
-        if training_mode:
+        if {training_mode} | {object_move == ObjectMoveType.CIRCLE}:
             truncated = self.episode_length_buf >= self.max_episode_length - 20 # 물체 원운동 환경 초기화 주기
         else:
             truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
 
-        
         #환경 고정
         terminated = 0
         # truncated = 0
@@ -721,9 +732,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         reset_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
         reset_box_pose = torch.cat([reset_pos, reset_rot], dim = -1)
         
-        # self._box.write_root_pose_to_sim(reset_box_pose)
+        if object_move == ObjectMoveType.CIRCLE:
+            self._box.write_root_pose_to_sim(reset_box_pose)
         
-        # 물체 랜덤 위치 생성 (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
+        # 물체 위치 랜덤 생성 (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
         self.rand_pos = torch.stack([
             torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
             torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
@@ -743,19 +755,21 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
 
-        self._box.write_root_pose_to_sim(rand_reset_box_pose)
-        self._box.write_root_velocity_to_sim(zero_root_velocity)
+        if object_move == ObjectMoveType.STATIC:
+            self._box.write_root_pose_to_sim(rand_reset_box_pose)
+            self._box.write_root_velocity_to_sim(zero_root_velocity)
         
-        # 물체 랜덤 위치 이동----------------------------------------------------------------
-        # self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
-        # self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
-        
-        # # self.new_box_pos_rand = self.current_box_pos
-        # # self.target_box_pos = self.rand_pos
-        
-        # direction = self.target_box_pos - self.new_box_pos_rand
-        # direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-        # self.rand_pos_step = (direction / direction_norm * self.speed)
+        # 물체 위치 선형 랜덤 이동----------------------------------------------------------------
+        if object_move == ObjectMoveType.LINEAR:
+            self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
+            self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+
+            # self.new_box_pos_rand = self.current_box_pos
+            # self.target_box_pos = self.rand_pos
+
+            direction = self.target_box_pos - self.new_box_pos_rand
+            direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+            self.rand_pos_step = (direction / direction_norm * self.speed)
         #--------------------------------------------------------------------------------
                
         self.cfg.current_time = 0
@@ -837,7 +851,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         joint_penalty_scale = 3.0
         alignment_reward_scale = 10.0
         camera_roll_reward_scale = 7.0
-        distance_reward_scale = 12.0
+        distance_reward_scale = 10.0
         pview_reward_scale = 5.0  # 조정 가능!
         
         # tracking은 잘되는 보상 함수(단, 카메라 시야 수평 고정 x)
@@ -853,7 +867,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         eps = 1e-6  # NaN 방지용 작은 값
         
         # 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
-        target_distance = 0.1  # 목표 거리 (예: 20cm)
+        target_distance = 0.2  # 목표 거리 (예: 20cm)
         distance_error = torch.abs(torch.norm(franka_grasp_pos - box_pos_w, p=2, dim=-1) - target_distance)
         distance_reward = torch.exp(-distance_error * dist_reward_scale)
         
@@ -885,7 +899,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         joint_penalty = torch.tanh(joint_penalty)
 
         # 행동 크기가 클수록 패널티 적용 (이상한 행동 방지)
-        action_penalty = 0.1 * torch.sum(actions**2, dim=-1)
+        action_penalty = 0.15 * torch.sum(actions**2, dim=-1)
         
         # 카메라 중심으로부터 거리 (XY 평면 기준)
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)  # XY 거리 (Z는 depth)
@@ -898,7 +912,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # 5. 최종 보상 계산
         rewards = (
-            dist_reward_scale * distance_reward  # 거리 유지 보상
+            distance_reward_scale * distance_reward  # 거리 유지 보상
             + alignment_reward_scale * total_alignment_reward  # 정렬 보상
             - joint_penalty_scale * joint_penalty  # 자세 안정성 패널티
             - action_penalty_scale * action_penalty  # 행동 크기 패널티
