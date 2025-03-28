@@ -40,16 +40,16 @@ from cv_bridge import CvBridge
 
 import kornia
 
-camera_enable = True
-training_mode = False
-
 class ObjectMoveType(Enum):
     STATIC = "static"
     CIRCLE = "circle"
     LINEAR = "linear"
 
+training_mode = True
+image_publish = False
+camera_enable = False
+robot_action = True
 object_move = ObjectMoveType.LINEAR
-
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -103,11 +103,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # "panda_finger_joint.*": 0.035,
                 
                 "panda_joint1": 0.000,
-                "panda_joint2": -1.231,
+                "panda_joint2": -0.831,
                 "panda_joint3": -0.000,
-                "panda_joint4": -2.696,
+                "panda_joint4": -1.796,
                 "panda_joint5": -0.000,
-                "panda_joint6": 2.433,
+                "panda_joint6": 2.033,
                 "panda_joint7": 0.707,
                 "panda_finger_joint.*": 0.035,
             },
@@ -396,18 +396,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         rclpy.init()
         
-        # image publish 설정
-        # self.node = rclpy.create_node('isaac_camera_publisher')
-        # self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
-        # self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
-        # self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
-        
-        # self.node = rclpy.create_node('camera_publisher')
-        # self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/camera_info_rect',10)
-        # self.rgb_publisher = self.node.create_publisher(Image, '/image_rect',10)
-        # self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
-        # self.bridge = CvBridge()
-        # self.timer = self.node.create_timer(0.1, self.publish_camera_data)
+        if image_publish:
+            self.node = rclpy.create_node('isaac_camera_publisher')
+            self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
+            self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
+            self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
+
+            self.node = rclpy.create_node('camera_publisher')
+            self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/camera_info_rect',10)
+            self.rgb_publisher = self.node.create_publisher(Image, '/image_rect',10)
+            self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
+            self.bridge = CvBridge()
+            self.timer = self.node.create_timer(0.1, self.publish_camera_data)
         
     def publish_camera_data(self):
         env_id = 0
@@ -416,64 +416,65 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         zero_time.sec = 0
         zero_time.nanosec = 0
         
-        # rgb_data = self._camera.data.output["rgb"]
-        # depth_data = self._camera.data.output["depth"]
+        if image_publish:
+            rgb_data = self._camera.data.output["rgb"]
+            depth_data = self._camera.data.output["depth"]
         
-        # rgb_image = (rgb_data.cpu().numpy()[env_id]).astype(np.uint8)
-        # # rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)  # BGR to RGB 변환
+            rgb_image = (rgb_data.cpu().numpy()[env_id]).astype(np.uint8)
+            # rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)  # BGR to RGB 변환
         
-        # # depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.uint8)
-        # depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.float32)
+            # depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.uint8)
+            depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.float32)
         
-        # # Publish Camera Info
-        # camera_info_msg = CameraInfo()
-        # # camera_info_msg.header.stamp = self.node.get_clock().now().to_msg()
-        # camera_info_msg.header.stamp = zero_time
-        # camera_info_msg.header.frame_id = 'tf_camera'
+            # Publish Camera Info
+            camera_info_msg = CameraInfo()
+            # camera_info_msg.header.stamp = self.node.get_clock().now().to_msg()
+            camera_info_msg.header.stamp = zero_time
+            camera_info_msg.header.frame_id = 'tf_camera'
         
-        # camera_info_msg.height = 480 #rgb_image.shape[0]
-        # camera_info_msg.width = 640 #rgb_image.shape[1]
-        # camera_info_msg.distortion_model = 'plumb_bob'
+            camera_info_msg.height = 480 #rgb_image.shape[0]
+            camera_info_msg.width = 640 #rgb_image.shape[1]
+            camera_info_msg.distortion_model = 'plumb_bob'
         
-        # intrinsic_matrices = self._camera.data.intrinsic_matrices.cpu().numpy().flatten().tolist()
-        # camera_info_msg.k = intrinsic_matrices[:9]
-        # camera_info_msg.d = [0.0, 0.0, 0.0, 0.0, 0.0]
-        # camera_info_msg.r = [1.0, 0.0, 0.0,
-        #                      0.0, 1.0, 0.0,
-        #                      0.0, 0.0, 1.0]
-        # camera_info_msg.p = intrinsic_matrices[:3] + [0.0] + intrinsic_matrices[3:6] + [0.0] + [0.0, 0.0, 1.0, 0.0]
-        # # camera_info_msg.p = [1.0, 0.0, 0.0, 0.0,
-        # #                      0.0, 1.0, 0.0, 0.0,
-        # #                      0.0, 0.0, 1.0, 0.0]
+            intrinsic_matrices = self._camera.data.intrinsic_matrices.cpu().numpy().flatten().tolist()
+            camera_info_msg.k = intrinsic_matrices[:9]
+            camera_info_msg.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+            camera_info_msg.r = [1.0, 0.0, 0.0,
+                                 0.0, 1.0, 0.0,
+                                 0.0, 0.0, 1.0]
+            camera_info_msg.p = intrinsic_matrices[:3] + [0.0] + intrinsic_matrices[3:6] + [0.0] + [0.0, 0.0, 1.0, 0.0]
+            # camera_info_msg.p = [1.0, 0.0, 0.0, 0.0,
+            #                      0.0, 1.0, 0.0, 0.0,
+            #                      0.0, 0.0, 1.0, 0.0]
          
-        # camera_info_msg.binning_x = 0
-        # camera_info_msg.binning_y = 0
+            camera_info_msg.binning_x = 0
+            camera_info_msg.binning_y = 0
 
-        # camera_info_msg.roi.x_offset = 0
-        # camera_info_msg.roi.y_offset = 0
-        # camera_info_msg.roi.height = 0
-        # camera_info_msg.roi.width = 0
-        # camera_info_msg.roi.do_rectify = False
+            camera_info_msg.roi.x_offset = 0
+            camera_info_msg.roi.y_offset = 0
+            camera_info_msg.roi.height = 0
+            camera_info_msg.roi.width = 0
+            camera_info_msg.roi.do_rectify = False
         
-        # self.camera_info_publisher.publish(camera_info_msg)
-        # # self.node.get_logger().info('Published camera info')
+            self.camera_info_publisher.publish(camera_info_msg)
+            # self.node.get_logger().info('Published camera info')
         
-        # # Publish RGB Image
-        # rgb_msg = self.bridge.cv2_to_imgmsg(rgb_image, encoding='rgb8')
-        # # rgb_msg.header.stamp = self.node.get_clock().now().to_msg()
-        # rgb_msg.header.stamp = zero_time
-        # rgb_msg.header.frame_id = 'tf_camera'
-        # self.rgb_publisher.publish(rgb_msg)
-        # # self.node.get_logger().info('Published RGB image')
+            # Publish RGB Image
+            rgb_msg = self.bridge.cv2_to_imgmsg(rgb_image, encoding='rgb8')
+            # rgb_msg.header.stamp = self.node.get_clock().now().to_msg()
+            rgb_msg.header.stamp = zero_time
+            rgb_msg.header.frame_id = 'tf_camera'
+            self.rgb_publisher.publish(rgb_msg)
+            # self.node.get_logger().info('Published RGB image')
 
-        # # Publish Depth Image
-        # depth_msg = self.bridge.cv2_to_imgmsg(depth_image, encoding='32FC1')
-        # # depth_msg.header.stamp = self.node.get_clock().now().to_msg()
-        # depth_msg.header.stamp = zero_time
-        # depth_msg.header.frame_id = 'tf_camera'
-        # self.depth_publisher.publish(depth_msg)
-        # depth_msg.step = depth_image.shape[1] * 4
-        # # self.node.get_logger().info('Published Depth image')
+            # Publish Depth Image
+            depth_msg = self.bridge.cv2_to_imgmsg(depth_image, encoding='32FC1')
+            # depth_msg.header.stamp = self.node.get_clock().now().to_msg()
+            depth_msg.header.stamp = zero_time
+            depth_msg.header.frame_id = 'tf_camera'
+            self.depth_publisher.publish(depth_msg)
+            depth_msg.step = depth_image.shape[1] * 4
+            # self.node.get_logger().info('Published Depth image')
     
     def sample_target_box_pos(self):
         
@@ -520,7 +521,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self.rand_pos_step = 0
         self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
-        self.speed = 0.003
+        self.speed = 0.8
         
         return target_box_pos
     
@@ -548,6 +549,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         return q_conj
     
     def compute_camera_world_pose(self, hand_pos, hand_rot):
+
         cam_offset_pos = torch.tensor([0.0, 0.0, 0.05], device=hand_pos.device).repeat(self.num_envs, 1)
 
         hand_rot_matrix = kornia.geometry.quaternion.quaternion_to_rotation_matrix(hand_rot)
@@ -611,28 +613,31 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
         # 카메라 ros2 publish----------------------------------------------------------------------------------------------
-        # self.publish_camera_data()
-                
-        # 물체 원 운동 (실제 운동 제어 코드)---------------------------------------------------------------------------------------------------------------
-        R = 0.2
-        omega = 0.7
-                
-        offset_x = R * torch.cos(omega * current_time) - 0.1
-        offset_y = R * torch.sin(omega * current_time) 
-        offset_z = 0.055
-        
-        offset_pos = torch.tensor([offset_x, offset_y, offset_z], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        
-        new_box_pos_circle = self.box_center + offset_pos
-        new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
-        
-        new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
-        
+        if image_publish:
+            self.publish_camera_data()
+
+        # 물체 원 운동 (실제 운동 제어 코드)-------------------------------------------------------------------------------------------
         if object_move == ObjectMoveType.CIRCLE:
+
+            R = 0.2
+            omega = 0.7
+
+            offset_x = R * torch.cos(omega * current_time) - 0.1
+            offset_y = R * torch.sin(omega * current_time) 
+            offset_z = 0.055
+
+            offset_pos = torch.tensor([offset_x, offset_y, offset_z], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+
+            new_box_pos_circle = self.box_center + offset_pos
+            new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
+
+            new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
+
             self._box.write_root_pose_to_sim(new_box_pose_circle)
         
         # 물체 위치 랜덤 선형 이동 --------------------------------------------------------------------------------------------------
         if object_move == ObjectMoveType.LINEAR:
+            
             distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
 
             # print(f"distance_to_target : {distance_to_target}")
@@ -662,10 +667,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
-        # print("robot_stop")
-        # print(f"robot_dof_targets : {self.robot_dof_targets}")
-        # self.robot_dof_targets[:, -1] = 0.707
-        self._robot.set_joint_position_target(self.robot_dof_targets)
+        if robot_action:  
+            self._robot.set_joint_position_target(self.robot_dof_targets)
+        else:
+            print("robot_action_stop")
         
     # post-physics step calls
 
@@ -675,6 +680,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if {training_mode} | {object_move == ObjectMoveType.CIRCLE}:
             truncated = self.episode_length_buf >= self.max_episode_length - 20 # 물체 원운동 환경 초기화 주기
         else:
+            print("400")
             truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
 
         #환경 고정
@@ -704,6 +710,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.robot_grasp_rot,
             self.box_grasp_rot,
             box_pos_cam,
+            box_rot_cam,
             self.gripper_forward_axis,
             self.gripper_up_axis,
             self.cfg.dist_reward_scale,
@@ -808,16 +815,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx]
         box_rot_world = self._box.data.body_link_quat_w[env_ids, self.box_idx]
         
-        # camera_pos_w = self.compute_camera_world_pose(hand_pos, hand_rot)
-        # camera_rot_w = self.robot_grasp_rot
-        
-        # box_pos_cam, box_rot_cam = self.world_to_camera_pose(
-        #     camera_pos_w, camera_rot_w,
-        #     box_pos_world - self.scene.env_origins, box_rot_world,
-        # )
-        
-        # print(f"box_pos_cam : {box_pos_cam}")
-        
         (
             self.robot_grasp_rot[env_ids],
             self.robot_grasp_pos[env_ids],
@@ -842,17 +839,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         franka_grasp_rot,
         box_rot_w,
         box_pos_cam,
+        box_rot_cam,
         gripper_forward_axis,
         gripper_up_axis,
         dist_reward_scale,
         rot_reward_scale,
         action_penalty_scale,
     ):
-        joint_penalty_scale = 3.0
-        alignment_reward_scale = 10.0
-        camera_roll_reward_scale = 7.0
-        distance_reward_scale = 10.0
+        joint_penalty_scale = 5.0
+        alignment_reward_scale = 8.0
+        distance_reward_scale = 12.0
         pview_reward_scale = 5.0  # 조정 가능!
+        cam_up_alignment_reward_scale = 3.0
         
         # tracking은 잘되는 보상 함수(단, 카메라 시야 수평 고정 x)
         if not hasattr(self, "init_robot_grasp_pos"):
@@ -901,7 +899,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 행동 크기가 클수록 패널티 적용 (이상한 행동 방지)
         action_penalty = 0.15 * torch.sum(actions**2, dim=-1)
         
-        # 카메라 중심으로부터 거리 (XY 평면 기준)
+        # 카메라 veiw 중심으로부터 거리 (XY 평면 기준)
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)  # XY 거리 (Z는 depth)
         center_wdight = 15.0
         pview_reward = torch.exp(-center_offset * center_wdight)  # scale 조정 가능 (10.0은 예시)
@@ -909,6 +907,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         fov_threshold = 1.0
         out_of_fov_mask = (box_pos_cam[:, 2] < 0.05) | (center_offset > fov_threshold) # Z가 너무 작으면 벗어남
         pview_reward[out_of_fov_mask] = -5.0  # 큰 패널티
+        
+        # 카메라 veiw 기준 물체의 회전 고정
+        # 1. Up 벡터 생성 & 확장
+        up_vec = torch.tensor([0, 1, 0], dtype=torch.float32, device=box_rot_cam.device).expand(box_rot_cam.shape[0], 3)        
+
+        # 2. 물체 회전에 적용해서 카메라 기준 Up 벡터 계산
+        box_up_cam = tf_vector(box_rot_cam, up_vec)  # (N, 3)       
+
+        # 3. 카메라 기준 Up 벡터 정의
+        cam_up = torch.tensor([0, 1, 0], dtype=torch.float32, device=box_rot_cam.device).unsqueeze(0)  # (1, 3)     
+
+        # 4. 정렬 보상 계산
+        up_alignment = torch.sum(box_up_cam * cam_up, dim=-1)
+        up_alignment_reward = (up_alignment + 1) / 2
 
         # 5. 최종 보상 계산
         rewards = (
@@ -917,6 +929,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             - joint_penalty_scale * joint_penalty  # 자세 안정성 패널티
             - action_penalty_scale * action_penalty  # 행동 크기 패널티
             + pview_reward_scale * pview_reward
+            + cam_up_alignment_reward_scale * up_alignment_reward
         )
         
         # # 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
