@@ -41,6 +41,8 @@ from vision_msgs.msg import Detection3DArray
 from geometry_msgs.msg import Pose
 
 from cv_bridge import CvBridge
+import threading
+import time
 
 class ObjectMoveType(Enum):
     STATIC = "static"
@@ -48,7 +50,7 @@ class ObjectMoveType(Enum):
     LINEAR = "linear"
 
 training_mode = False
-foundationpose_mode = True
+foundationpose_mode = False
 
 image_publish = True
 camera_enable = True
@@ -203,7 +205,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     if camera_enable:
         camera = CameraCfg(
             prim_path="/World/envs/env_.*/Robot/panda_hand/hand_camera", 
-            update_period=0.1,
+            update_period=0.03,
             height=480,
             width=640,
             data_types=["rgb", "depth"],
@@ -402,19 +404,22 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.speed = 0.003
         
         rclpy.init()
+        self.last_publish_time = 0.0
         
         if image_publish:
-            self.node = rclpy.create_node('isaac_camera_publisher')
-            self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
-            self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
-            self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
+            # self.node = rclpy.create_node('isaac_camera_publisher')
+            # self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/isaac_camera_info_rect',10)
+            # self.rgb_publisher = self.node.create_publisher(Image, '/isaac_image_rect',10)
+            # self.depth_publisher = self.node.create_publisher(Image, '/isaac_depth',10)
 
             self.node = rclpy.create_node('camera_publisher')
             self.camera_info_publisher = self.node.create_publisher(CameraInfo, '/camera_info_rect',10)
             self.rgb_publisher = self.node.create_publisher(Image, '/image_rect',10)
             self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
             self.bridge = CvBridge()
-            self.timer = self.node.create_timer(0.1, self.publish_camera_data)
+            # self.timer = self.node.create_timer(1.0 / 30.0, self.publish_camera_data)
+            # self.ros_thread = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
+            # self.ros_thread.start()
         
         if foundationpose_mode:
             self.latest_detection_msg = None
@@ -433,16 +438,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         zero_time.sec = 0
         zero_time.nanosec = 0
         
+        # print("publish_camera_data")
+        
         if image_publish:
             rgb_data = self._camera.data.output["rgb"]
             depth_data = self._camera.data.output["depth"]
         
-            rgb_image = (rgb_data.cpu().numpy()[env_id]).astype(np.uint8)
-            # rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)  # BGR to RGB 변환
+            # rgb_image = (rgb_data.cpu().numpy()[env_id]).astype(np.uint8)
+            rgb_image = rgb_data.to("cpu", non_blocking=True).numpy()[env_id].astype(np.uint8)
         
-            # depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.uint8)
-            depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.float32)
-        
+            # depth_image = (depth_data.cpu().numpy()[env_id]).astype(np.float32)
+            depth_image = depth_data.to("cpu", non_blocking=True).numpy()[env_id].astype(np.float32)
+
             # Publish Camera Info
             camera_info_msg = CameraInfo()
             # camera_info_msg.header.stamp = self.node.get_clock().now().to_msg()
@@ -513,7 +520,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     
     def foundationpose_callback(self,msg):
         self.latest_detection_msg = msg
-        print(f"lastest_detection_msg : {self.latest_detection_msg}")
+        # print(f"lastest_detection_msg : {self.latest_detection_msg}")
     
     def sample_target_box_pos(self):
         self.rand_pos_range_center = {
@@ -602,7 +609,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         rel_pos = obj_pos_w - camera_pos_w
 
         cam_rot_matrix = kornia.geometry.quaternion.quaternion_to_rotation_matrix(camera_rot_w)
-
+        
         obj_pos_cam = torch.bmm(cam_rot_matrix.transpose(1, 2), rel_pos.unsqueeze(-1)).squeeze(-1)
 
         cam_rot_inv = self.quat_conjugate(camera_rot_w)
@@ -610,6 +617,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         return obj_pos_cam, obj_rot_cam
     
+    def camera_to_world_pose(self, camera_pos_w, camera_rot_w, obj_pos_cam, obj_rot_cam):
+        cam_rot_matrix = kornia.geometry.quaternion.quaternion_to_rotation_matrix(camera_rot_w)
+        
+        obj_pos_world = torch.bmm(cam_rot_matrix, obj_pos_cam.unsqueeze(-1)).squeeze(-1) + camera_pos_w
+        obj_rot_world = self.quat_mul(camera_rot_w, obj_rot_cam)
+        
+        return obj_pos_world, obj_rot_world
+        
+
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
     
@@ -650,13 +666,50 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.cfg.current_time = self.cfg.current_time + self.dt
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
+        if not hasattr(self, "frame_start_time"):
+            self.frame_start_time = time.time()
+            self.frame_count = 0
+        else:
+            self.frame_count += 1
+            if self.frame_count % 60 == 0:
+                elapsed = time.time() - self.frame_start_time
+                print(f"Simulated FPS: {self.frame_count / elapsed:.2f}")
+                self.frame_start_time = time.time()
+                self.frame_count = 0
+        
         # 카메라 ros2 publish----------------------------------------------------------------------------------------------
         if image_publish:
-            self.publish_camera_data()
+            # rclpy.spin_once(self.node, timeout_sec=0.001)  # ROS 메시지 처리
+            # self.publish_camera_data()  # 직접 퍼블리시
+            
+            # self.last_publish_time += self.dt
+            # if self.last_publish_time >= (1.0 / 30.0):
+            #     rclpy.spin_once(self.node, timeout_sec=0.001)
+            #     self.publish_camera_data()
+            #     self.last_publish_time = 0.0
+                
+            # self.ros_thread = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
+            # self.ros_thread.start()
+            
+            self.last_publish_time += self.dt
+            if self.last_publish_time >= (1.0 / 30.0):  # 정확히 30fps 기준
+                start_time = time.time()  # 시간 측정 시작
+                self.publish_camera_data()
+                torch.cuda.synchronize()  # GPU 연산 완료 대기
+                end_time = time.time()  # 시간 측정 끝
+                # print(f"publish_camera_data time: {end_time - start_time:.4f} seconds")
+                
+                start = time.time()
+                rclpy.spin_once(self.node, timeout_sec=0.001)
+                print(f"Spin time: {time.time() - start:.4f} sec")  # ★ 여기에 출력
+    
+                start = time.time()
+                self.publish_camera_data()
+                print(f"Publish time: {time.time() - start:.4f} sec")  # ★ 여기에 출력
+                self.last_publish_time = 0.0
 
         # 물체 원 운동 (실제 운동 제어 코드)-------------------------------------------------------------------------------------------
         if object_move == ObjectMoveType.CIRCLE:
-
             R = 0.2
             omega = 0.7
 
@@ -708,8 +761,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         global robot_action
         global robot_init_pose
         
-        print(f"robot_action : {robot_action}")
-        print(f"init_pose : {robot_init_pose}")
+        # print("--------------------------------")
+        # print(f"robot_action : {robot_action}")
+        # print(f"init_pose : {robot_init_pose}")
 
         if robot_action and robot_init_pose:
             target_pos = self.robot_dof_targets.clone()
@@ -738,14 +792,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
             max_err = torch.max(joint_err).item()
             
-            pos = self.subscribe_object_pos()
+            if foundationpose_mode:
+                pos = self.subscribe_object_pos()
+                # print(f"max_err : {max_err}")
             
-            if (max_err < 0.05) and (pos is not None):
-                robot_action = True
-                robot_init_pose = True
-                self.robot_dof_targets[:] = init_pos  # 이후 policy에서 이어받음
+                if (max_err < 0.05) and (pos is not None):
+                    # robot_action = True
+                    robot_init_pose = True
+                    self.robot_dof_targets[:] = init_pos  # 이후 policy에서 이어받음
                 
-            print("init operating.. robot_action_stop")
+                # print("init operating.. robot_action_stop")
         else:
             print("no object position robot_action_stop")
         
@@ -757,7 +813,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if {training_mode} | {object_move == ObjectMoveType.CIRCLE}:
             truncated = self.episode_length_buf >= self.max_episode_length - 10 # 물체 원운동 환경 초기화 주기
         else:
-            print("400")
+            # print("400")
             truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
 
         #환경 고정
@@ -866,14 +922,22 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         global robot_action
         
+        camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
+        camera_rot_w = self.robot_grasp_rot
+                
         if foundationpose_mode:
             rclpy.spin_once(self.foundationpose_node, timeout_sec=0.01)
             pos = self.subscribe_object_pos()
             
             if (pos is not None) and robot_init_pose:
-                robot_action = True
-                pos = pos.repeat(self.num_envs, 1)
-                print(f"foundationpose_obejct_position : {pos}")
+                # robot_action = True
+                foundationpose_pos = pos.repeat(self.num_envs, 1)
+                obj_pos_world, _ = self.camera_to_world_pose(camera_pos_w, camera_rot_w, foundationpose_pos, self.box_grasp_rot,)
+                # print(f"foundationpose_obejct_position : {obj_pos_world}")
+                
+                position_error = torch.norm(self.box_grasp_pos - obj_pos_world, dim=-1)
+                print(f"Position error : {position_error.mean().item()}")
+                
                 to_target = pos - self.robot_grasp_pos
             else:
                 robot_action = False
