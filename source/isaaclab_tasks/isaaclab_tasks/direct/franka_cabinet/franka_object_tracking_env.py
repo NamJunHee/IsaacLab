@@ -50,15 +50,15 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
 
+object_move = ObjectMoveType.LINEAR
+
 training_mode = False
 foundationpose_mode = True
 
 image_publish = True
 camera_enable = True
+
 robot_action = False
-
-object_move = ObjectMoveType.CIRCLE
-
 robot_init_pose = False
     
 @configclass
@@ -128,7 +128,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
                 effort_limit=87.0,
-                velocity_limit=2.175,
+                # velocity_limit=2.175,
+                velocity_limit=0.5,
                 # stiffness=80.0,
                 stiffness=200.0,
                 # damping=4.0,
@@ -137,7 +138,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             "panda_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[5-7]"],
                 effort_limit=12.0,
-                velocity_limit=2.61,
+                # velocity_limit=2.61,
+                velocity_limit=0.5,
                 # stiffness=80.0,
                 stiffness=200.0,
                 # damping=4.0,
@@ -215,7 +217,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             # width=1920,
             data_types=["rgb", "depth"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=55.0,
+                focal_length=35.0,
                 # focal_length=65.0,
                 focus_distance=600.0,
                 horizontal_aperture=50.0,
@@ -273,8 +275,10 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             ),
     )
     
-    action_scale = 7.5
-    dof_velocity_scale = 0.1
+    # action_scale = 7.5
+    # dof_velocity_scale = 0.1
+    action_scale = 2.0
+    dof_velocity_scale = 0.05
 
     # reward scales
     # dist_reward_scale = 1.5
@@ -758,46 +762,60 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         global robot_action
         global robot_init_pose
+        
+        # print(f"robot_action : {robot_action}")
+        # print(f"robot_init_pose : {robot_init_pose}")
 
-        if robot_action and robot_init_pose:
-            target_pos = self.robot_dof_targets.clone()
+        if training_mode == False:
             
+            if robot_action and robot_init_pose:
+                target_pos = self.robot_dof_targets.clone()
+
+                joint7_index = self._robot.find_joints(["panda_joint7"])[0]
+                target_pos[:, joint7_index] = 0.
+
+                self._robot.set_joint_position_target(target_pos)
+
+            elif (robot_action == False) and (robot_init_pose == False):
+                init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
+
+                joint_names = [
+                "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
+                "panda_joint5", "panda_joint6", "panda_joint7",
+                "panda_finger_joint1", "panda_finger_joint2"
+                ]
+                # joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
+                joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 1.600, 0.707, 0.035, 0.035]
+
+                for name, val in zip(joint_names, joint_values):
+                    index = self._robot.find_joints(name)[0]
+                    init_pos[:, index] = val
+
+                self._robot.set_joint_position_target(init_pos)
+
+                joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
+                max_err = torch.max(joint_err).item()
+
+                if foundationpose_mode:
+                    pos = self.subscribe_object_pos()
+                    if (max_err < 0.1) and (pos is not None):
+                        self.init_cnt += 1
+                        if self.init_cnt > 300 :#and self.position_error < 0.06:
+                            # robot_action = True
+                            robot_init_pose = True
+                            self.robot_dof_targets[:] = init_pos 
+                            
+                elif foundationpose_mode == False and max_err < 0.1:
+                    robot_init_pose = True
+                    robot_action = True
+                    
+        else:            
+            target_pos = self.robot_dof_targets.clone()
+
             joint7_index = self._robot.find_joints(["panda_joint7"])[0]
             target_pos[:, joint7_index] = 0.707
-            
-            self._robot.set_joint_position_target(target_pos)
-            
-        elif (robot_action == False) and (robot_init_pose == False):
-            init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-            
-            joint_names = [
-            "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
-            "panda_joint5", "panda_joint6", "panda_joint7",
-            "panda_finger_joint1", "panda_finger_joint2"
-            ]
-            joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
-                        
-            for name, val in zip(joint_names, joint_values):
-                index = self._robot.find_joints(name)[0]
-                init_pos[:, index] = val
-            
-            self._robot.set_joint_position_target(init_pos)
-            
-            joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
-            max_err = torch.max(joint_err).item()
-            
-            if foundationpose_mode:
-                pos = self.subscribe_object_pos()
-                if (max_err < 0.1) and (pos is not None):
-                    self.init_cnt += 1
-                    if self.init_cnt > 300 and self.obj_origin_distance < 0.2:
-                        # robot_action = True
-                        robot_init_pose = True
-                        self.robot_dof_targets[:] = init_pos  # 이후 policy에서 이어받음
-                
-                # print("init operating.. robot_action_stop")
-        # else:
-        #     print("no object position robot_action_stop")
+
+            self._robot.set_joint_position_target(self.robot_dof_targets)
         
     # post-physics step calls
 
@@ -805,7 +823,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         terminated = self._box.data.body_link_pos_w[:, 0,2] > 0.3
         if {training_mode} | {object_move == ObjectMoveType.CIRCLE}:
-            truncated = self.episode_length_buf >= self.max_episode_length # 물체 원운동 환경 초기화 주기
+            # truncated = self.episode_length_buf >= self.max_episode_length # 물체 원운동 환경 초기화 주기
+            truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기 (초기 움직임 제한 학습)
+
         else:
              truncated = self.episode_length_buf >= self.max_episode_length - 400 # 물체 램덤 생성 환경 초기화 주기
 
@@ -924,13 +944,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             pos = self.subscribe_object_pos()
         
             if (pos is not None) and robot_init_pose:
-                
-                # robot_action = True
-                
+            
                 camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
                 camera_rot_w = self.robot_grasp_rot
                 
-                box_pos_cam, box_rot_cam = self.world_to_camera_pose(camera_pos_w, camera_rot_w, self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,)
+                # box_pos_cam, box_rot_cam = self.world_to_camera_pose(camera_pos_w, camera_rot_w, self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,)
                 
                 foundationpose_pos = pos.repeat(self.num_envs, 1)
                 
@@ -942,8 +960,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 fp_world_pos, _ = self.camera_to_world_pose(camera_pos_w, camera_rot_w, foundationpose_pos_converted, self.box_grasp_rot,)
 
                 # print(f"isaac_cam_pos : {box_pos_cam}")
-                # print(f"fp_cam_pos : {foundationpose_pos_converted}")
-                print(f"isaac_world_pos : {self.box_grasp_pos}")
+                print(f"fp_cam_pos : {foundationpose_pos_converted}")
+                # print(f"isaac_world_pos : {self.box_grasp_pos}")
                 print(f"fp_world_pos : {fp_world_pos}")
                 
                 origin = torch.zeros_like(self.box_grasp_pos)
@@ -953,8 +971,26 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 print(f"Position error : {self.position_error.mean().item()}")
                 print(f"obj_origin_distance : {self.obj_origin_distance.mean().item()}")
                 
+                if self.position_error < 0.06:
+                    robot_action = True
+                elif self.position_error is None or self.position_error >= 0.06:
+                    robot_action = False
+                    
                 to_target = fp_world_pos - self.robot_grasp_pos
-                # to_target = self.box_grasp_pos - self.robot_grasp_pos
+                # to_target = self.box_grasp_pos - self.robot_grasp_pos 
+                
+                obs = torch.cat(
+                    (
+                        dof_pos_scaled,
+                        self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
+                        to_target,
+                        self._box.data.body_link_pos_w[:, 0, 2].unsqueeze(-1),
+                        self._box.data.body_link_vel_w[:, 0, 2].unsqueeze(-1),
+                    ),
+                    dim=-1,
+                )
+                # return {"policy": torch.clamp(obs, -5.0, 5.0),}
+                    
             else:
                 robot_action = False
                 to_target = self.box_grasp_pos - self.robot_grasp_pos 
@@ -1013,12 +1049,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         gripper_forward_axis,
         gripper_up_axis,
     ):
-        distance_reward_scale = 12.0
-        alignment_reward_scale = 8.0
-        pview_reward_scale = 6.0  
+        distance_reward_scale = 8.0
+        alignment_reward_scale = 12.0
+        pview_reward_scale = 10.0  
         # cam_up_alignment_reward_scale = 12.0
-        joint_penalty_scale = 5.0
-        action_penalty_scale = 5.0
+        joint_penalty_scale = 6.0
+        action_penalty_scale = 12.0
         
         # tracking은 잘되는 보상 함수(단, 카메라 시야 수평 고정 x)
         if not hasattr(self, "init_robot_grasp_pos"):
