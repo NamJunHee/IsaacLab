@@ -39,7 +39,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from vision_msgs.msg import Detection3DArray
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Point
 
 from cv_bridge import CvBridge
 import threading
@@ -52,11 +52,11 @@ class ObjectMoveType(Enum):
 
 object_move = ObjectMoveType.LINEAR
 
-training_mode = False
-foundationpose_mode = True
+training_mode = True
+foundationpose_mode = False
 
-image_publish = True
-camera_enable = True
+image_publish = False
+camera_enable = False
 
 robot_action = False
 robot_init_pose = False
@@ -464,10 +464,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.latest_detection_msg = None
             self.foundationpose_node = rclpy.create_node('foundationpose_receiver')
             self.foundationpose_node.create_subscription(
-                Detection3DArray,
+                # Detection3DArray,
                 # '/centerpose/detections',
-                '/tracking/output',
-                # '/object_position',
+                # '/tracking/output',
+                
+                Point,
+                '/object_position',
                 self.foundationpose_callback,
                 10
             )
@@ -542,16 +544,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # print("No detection message received.")
             return None
 
-        if not msg.detections:
-            # print("No detections found in message.")
-            return None
+        # if not msg.detections:
+        #     # print("No detections found in message.")
+        #     return None
 
-        if not msg.detections[0].results:
-            # print("No detection results found.")
-            return None
+        # if not msg.detections[0].results:
+        #     # print("No detection results found.")
+        #     return None
 
-        pos = msg.detections[0].results[0].pose.pose.position
-        return torch.tensor([pos.x, pos.y, pos.z], device=self.device)
+        # pos = msg.detections[0].results[0].pose.pose.position
+        
+        # return torch.tensor([pos.x, pos.y, pos.z], device=self.device)
+
+        return torch.tensor([msg.x, msg.y, msg.z], device=self.device)
+    
     
     def foundationpose_callback(self,msg):
         self.latest_detection_msg = msg
@@ -756,9 +762,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         global robot_action
         global robot_init_pose
-        
-        # print(f"robot_action : {robot_action}")
-        # print(f"robot_init_pose : {robot_init_pose}")
 
         if training_mode == False:
             
@@ -800,19 +803,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 
                 if foundationpose_mode:
                     pos = self.subscribe_object_pos()
+                    # print(pos)
                     if (max_err < 0.3) and (pos is not None):
                         self.init_cnt += 1
                         print(f"init_cnt : {self.init_cnt}")
                         
-                        x_in_range = self.rand_pos_range["x"][0] <= pos[0] <= self.rand_pos_range["x"][1]
-                        y_in_range = self.rand_pos_range["y"][0] <= pos[1] <= self.rand_pos_range["y"][1]
-                        z_in_range = self.rand_pos_range["z"][0] <= pos[2] <= self.rand_pos_range["z"][1]
-                        print(x_in_range, y_in_range, z_in_range)
+                        # x_in_range = self.rand_pos_range["x"][0] <= pos[0] <= self.rand_pos_range["x"][1]
+                        # y_in_range = self.rand_pos_range["y"][0] <= pos[1] <= self.rand_pos_range["y"][1]
+                        # z_in_range = self.rand_pos_range["z"][0] <= pos[2] <= self.rand_pos_range["z"][1]
+                        # print(x_in_range, y_in_range, z_in_range)
                         
-                        if self.init_cnt > 200 and x_in_range and y_in_range and z_in_range: #and self.position_error < 0.06:
+                        if self.init_cnt > 200: #and x_in_range and y_in_range and z_in_range: #and self.position_error < 0.06:
                             robot_action = True
                             robot_init_pose = True
-                            self.robot_dof_targets[:] = init_pos 
                             
                 elif foundationpose_mode == False and max_err < 0.3:
                     self.init_cnt += 1
@@ -991,6 +994,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         camera_rot_w = self.robot_grasp_rot
                 
         if foundationpose_mode:
+            
             rclpy.spin_once(self.foundationpose_node, timeout_sec=0.01)
             pos = self.subscribe_object_pos()
         
@@ -1012,8 +1016,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
                 # print(f"isaac_cam_pos : {box_pos_cam}")
                 # print(f"fp_cam_pos : {foundationpose_pos_converted}")
-                # print(f"isaac_world_pos : {self.box_grasp_pos}")
-                # print(f"fp_world_pos : {fp_world_pos}")
+                print(f"isaac_world_pos : {self.box_grasp_pos}")
+                print(f"fp_world_pos : {fp_world_pos}")
                 
                 origin = torch.zeros_like(self.box_grasp_pos)
                 self.position_error = torch.norm(self.box_grasp_pos - fp_world_pos, dim=-1)
@@ -1022,13 +1026,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # print(f"Position error : {self.position_error.mean().item()}")
                 # print(f"obj_origin_distance : {self.obj_origin_distance.mean().item()}")
                 
-                if self.position_error < 0.06:
-                    robot_action = True #True
-                elif self.position_error is None or self.position_error >= 0.06:
-                    robot_action = False #False
+                # if self.position_error < 0.06:
+                #     robot_action = True #True
+                # elif self.position_error is None or self.position_error >= 0.06:
+                #     robot_action = False #False
                     
                 to_target = fp_world_pos - self.robot_grasp_pos
-                # to_target = self.box_grasp_pos - self.robot_grasp_pos 
                 
                 obs = torch.cat(
                     (
