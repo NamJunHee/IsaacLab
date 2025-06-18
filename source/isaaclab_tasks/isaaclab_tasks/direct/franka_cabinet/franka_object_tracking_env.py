@@ -50,18 +50,18 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
 
-object_move = ObjectMoveType.STATIC
+object_move = ObjectMoveType.LINEAR
 
-training_mode = True
-foundationpose_mode = False
+training_mode = False
+foundationpose_mode = True
 
-image_publish = False
-camera_enable = False
+image_publish = True
+camera_enable = True
 
 robot_action = False
 robot_init_pose = False
 
-add_episode_length = 200
+add_episode_length = 3000
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -131,7 +131,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["panda_joint[1-4]"],
                 effort_limit=87.0,
                 # velocity_limit=2.175,
-                velocity_limit=0.25,
+                velocity_limit=0.22,
                 stiffness=80.0,
                 # stiffness=200.0,
                 # damping=4.0,
@@ -141,7 +141,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["panda_joint[5-7]"],
                 effort_limit=12.0,
                 # velocity_limit=2.61,
-                velocity_limit=0.25,
+                velocity_limit=0.22,
                 stiffness=80.0,
                 # stiffness=200.0,
                 # damping=4.0,
@@ -219,8 +219,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             # width=1920,
             data_types=["rgb", "depth"],
             spawn=sim_utils.PinholeCameraCfg(
-                # focal_length=35.0,
-                focal_length=20.0,
+                # focal_length=35.0, # 값이 클수록 확대
+                focal_length=15.0,
                 focus_distance=60.0,
                 horizontal_aperture=50.0,
                 clipping_range=(0.1, 1.0e5),
@@ -467,6 +467,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 Detection3DArray,
                 # '/centerpose/detections',
                 '/tracking/output',
+                # '/object_position',
                 self.foundationpose_callback,
                 10
             )
@@ -799,10 +800,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 
                 if foundationpose_mode:
                     pos = self.subscribe_object_pos()
-                    if (max_err < 0.1) and (pos is not None):
+                    if (max_err < 0.3) and (pos is not None):
                         self.init_cnt += 1
-                        if self.init_cnt > 200 :#and self.position_error < 0.06:
-                            # robot_action = True
+                        print(f"init_cnt : {self.init_cnt}")
+                        
+                        x_in_range = self.rand_pos_range["x"][0] <= pos[0] <= self.rand_pos_range["x"][1]
+                        y_in_range = self.rand_pos_range["y"][0] <= pos[1] <= self.rand_pos_range["y"][1]
+                        z_in_range = self.rand_pos_range["z"][0] <= pos[2] <= self.rand_pos_range["z"][1]
+                        print(x_in_range, y_in_range, z_in_range)
+                        
+                        if self.init_cnt > 200 and x_in_range and y_in_range and z_in_range: #and self.position_error < 0.06:
+                            robot_action = True
                             robot_init_pose = True
                             self.robot_dof_targets[:] = init_pos 
                             
@@ -1127,16 +1135,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
         
         # 학습 초기 상수 보상
-        distance_reward[within_range] = 1.0
-        distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
-
-        # 학습 후 선형 보상
-        # k = 2.0  # 보상 기울기 
-        # distance_reward[within_range] = 1.0 - k * distance_error[within_range]
+        # distance_reward[within_range] = 1.0
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
 
+        # 학습 후 선형 보상
+        k = 2.0  # 보상 기울기 
+        distance_reward[within_range] = 1.0 - k * distance_error[within_range]
+        distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
+
         ## 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터) 그리퍼 위치가 잡기축 위에 있는지 확인
-        
         robot_origin = self.scene.env_origins + torch.tensor([1.0, 0.0, 0.0], device=self.scene.env_origins.device)
     
         xy_vec = box_pos_w[:, :2]  - robot_origin[:, :2]            
@@ -1147,14 +1154,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
         
-        vector_align_margin = 0.90 # 초반 학습
-        # vector_align_margin = 0.95 # 후반 학습
+        # vector_align_margin = 0.90 # 초반 학습
+        vector_align_margin = 0.95 # 후반 학습
         alignment_cos = torch.sum(gripper_forward * grasp_axis, dim=-1).clamp(-1.0, 1.0)
 
         vector_alignment_reward = torch.where(
             alignment_cos >= vector_align_margin,
-            1, # 학습 초기 상수 보상
-            # alignment_cos, # 학습 후기 선형 보상
+            # 1, # 학습 초기 상수 보상
+            alignment_cos, # 학습 후기 선형 보상
             -1.0 * (1.0 - alignment_cos)
         )
         
@@ -1175,12 +1182,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             position_alignment_reward
         )
         
-        
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
         
-        pview_margin = 0.20 # 초반 학습
-        # pview_margin = 0.15 # 후반 학습
+        # pview_margin = 0.20 # 초반 학습
+        # pview_margin = 0.15 # 중반 학습
+        pview_margin = 0.10 # 후반 학습
         out_of_fov_mask = center_offset > pview_margin
 
         pview_reward = torch.where(
