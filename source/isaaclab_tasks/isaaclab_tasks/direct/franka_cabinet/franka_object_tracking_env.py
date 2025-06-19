@@ -52,7 +52,7 @@ class ObjectMoveType(Enum):
 
 object_move = ObjectMoveType.LINEAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
 image_publish = False
@@ -61,15 +61,17 @@ camera_enable = False
 robot_action = False
 robot_init_pose = False
 
-add_episode_length = 3000
+add_episode_length = 1000
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
-    action_space = 9
-    observation_space = 23
+    # action_space = 9
+    action_space = 12
+    # observation_space = 23
+    observation_space = 29
     state_space = 0
 
     # simulation
@@ -89,11 +91,81 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
-    # robot
+    # Franka robot
+    # robot = ArticulationCfg(
+    #     prim_path="/World/envs/env_.*/Robot",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
+    #         # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ufactory_xarm6/xarm6_with_gripper.usd",
+    #         activate_contact_sensors=False,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             disable_gravity=False,
+    #             max_depenetration_velocity=5.0,
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             enabled_self_collisions=False, solver_position_iteration_count=12, solver_velocity_iteration_count=1
+    #         ),
+    #     ),
+    #     init_state=ArticulationCfg.InitialStateCfg(
+    #         joint_pos={
+    #             # "panda_joint1": 1.157,
+    #             # "panda_joint2": -1.066,
+    #             # "panda_joint3": -0.155,
+    #             # "panda_joint4": -2.239,
+    #             # "panda_joint5": -1.841,
+    #             # "panda_joint6": 1.003,
+    #             # "panda_joint7": 0.469,
+    #             # "panda_finger_joint.*": 0.035,
+                
+    #             "panda_joint1": 0.000,
+    #             "panda_joint2": -0.831,
+    #             "panda_joint3": -0.000,
+    #             "panda_joint4": -1.796,
+    #             "panda_joint5": -0.000,
+    #             "panda_joint6": 2.033,
+    #             "panda_joint7": 0.707,
+    #             "panda_finger_joint.*": 0.035,
+    #         },
+    #         pos=(1.0, 0.0, 0.0),
+    #         rot=(0.0, 0.0, 0.0, 1.0),
+    #     ),
+    #     actuators={
+    #         "panda_shoulder": ImplicitActuatorCfg(
+    #             joint_names_expr=["panda_joint[1-4]"],
+    #             effort_limit=87.0,
+    #             # velocity_limit=2.175,
+    #             velocity_limit=0.22,
+    #             stiffness=80.0,
+    #             # stiffness=200.0,
+    #             # damping=4.0,
+    #             damping=25.0,
+    #         ),
+    #         "panda_forearm": ImplicitActuatorCfg(
+    #             joint_names_expr=["panda_joint[5-7]"],
+    #             effort_limit=12.0,
+    #             # velocity_limit=2.61,
+    #             velocity_limit=0.22,
+    #             stiffness=80.0,
+    #             # stiffness=200.0,
+    #             # damping=4.0,
+    #             damping=25.0,
+    #         ),
+    #         "panda_hand": ImplicitActuatorCfg(
+    #             joint_names_expr=["panda_finger_joint.*"],
+    #             effort_limit=200.0,
+    #             velocity_limit=0.2,
+    #             stiffness=2e3,
+    #             damping=1e2,
+    #         ),
+    #     },
+    # )
+    
+    # Ufactory robot
     robot = ArticulationCfg(
-        prim_path="/World/envs/env_.*/Robot",
+        prim_path="/World/envs/env_.*/UF_ROBOT",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
+            # usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
+            usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ufactory_xarm6/xarm6_with_gripper.usd",
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
@@ -105,30 +177,19 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             joint_pos={
-                # "panda_joint1": 1.157,
-                # "panda_joint2": -1.066,
-                # "panda_joint3": -0.155,
-                # "panda_joint4": -2.239,
-                # "panda_joint5": -1.841,
-                # "panda_joint6": 1.003,
-                # "panda_joint7": 0.469,
-                # "panda_finger_joint.*": 0.035,
-                
-                "panda_joint1": 0.000,
-                "panda_joint2": -0.831,
-                "panda_joint3": -0.000,
-                "panda_joint4": -1.796,
-                "panda_joint5": -0.000,
-                "panda_joint6": 2.033,
-                "panda_joint7": 0.707,
-                "panda_finger_joint.*": 0.035,
+                "joint1": 0.000,
+                "joint2": -0.831,
+                "joint3": -0.000,
+                "joint4": -1.796,
+                "joint5": -0.000,
+                "joint6": 2.033,
             },
             pos=(1.0, 0.0, 0.0),
             rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
-            "panda_shoulder": ImplicitActuatorCfg(
-                joint_names_expr=["panda_joint[1-4]"],
+            "ufactory_shoulder": ImplicitActuatorCfg(
+                joint_names_expr=["joint1", "joint2", "joint3"],
                 effort_limit=87.0,
                 # velocity_limit=2.175,
                 velocity_limit=0.22,
@@ -137,8 +198,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # damping=4.0,
                 damping=25.0,
             ),
-            "panda_forearm": ImplicitActuatorCfg(
-                joint_names_expr=["panda_joint[5-7]"],
+            "ufactory_forearm": ImplicitActuatorCfg(
+                joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
                 # velocity_limit=2.61,
                 velocity_limit=0.22,
@@ -147,8 +208,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # damping=4.0,
                 damping=25.0,
             ),
-            "panda_hand": ImplicitActuatorCfg(
-                joint_names_expr=["panda_finger_joint.*"],
+            "ufactory_hand": ImplicitActuatorCfg(
+                joint_names_expr=["left_finger_joint", "right_finger_joint"],
                 effort_limit=200.0,
                 velocity_limit=0.2,
                 stiffness=2e3,
@@ -209,7 +270,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     #카메라
     if camera_enable:
         camera = CameraCfg(
-            prim_path="/World/envs/env_.*/Robot/panda_hand/hand_camera", 
+            # prim_path="/World/envs/env_.*/Robot/panda_hand/hand_camera", 
+            prim_path="/World/envs/env_.*/Robot//hand_camera", 
             update_period=0.03,
             height=480,
             width=640,
@@ -330,25 +392,48 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
-        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
-        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
-
+        ## panda
+        # self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
+        # self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
+        
+        ## ufactory
+        self.robot_dof_speed_scales[self._robot.find_joints("left_finger_joint")[0]] = 0.1
+        self.robot_dof_speed_scales[self._robot.find_joints("right_finger_joint")[0]] = 0.1
+        
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
         stage = get_current_stage()
+        ## panda
+        # hand_pose = get_env_local_pose(
+        #     self.scene.env_origins[0],
+        #     UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
+        #     self.device,
+        # )
+        # lfinger_pose = get_env_local_pose(
+        #     self.scene.env_origins[0],
+        #     UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
+        #     self.device,
+        # )
+        # rfinger_pose = get_env_local_pose(
+        #     self.scene.env_origins[0],
+        #     UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_rightfinger")),
+        #     self.device,
+        # )
+        
+        ## ufactory
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/link6")),
             self.device,
         )
         lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/left_finger")),
             self.device,
         )
         rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_rightfinger")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/right_finger")),
             self.device,
         )
 
@@ -385,9 +470,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             (self.num_envs,1)
         )
         
-        self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
-        self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
-        self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
+        ## panda
+        # self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
+        # self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
+        # self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
+        
+        ## ufactory
+        self.hand_link_idx = self._robot.find_bodies("link6")[0][0]
+        self.left_finger_link_idx = self._robot.find_bodies("left_finger")[0][0]
+        self.right_finger_link_idx = self._robot.find_bodies("right_finger")[0][0]
         
         # self.cube_idx = self._cube.find_bodies("cube")[0][0]
         self.box_idx = self._box.find_bodies("base_link")[0][0]
@@ -541,20 +632,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         msg = self.latest_detection_msg
         
         if msg is None:
-            # print("No detection message received.")
             return None
-
-        # if not msg.detections:
-        #     # print("No detections found in message.")
-        #     return None
-
-        # if not msg.detections[0].results:
-        #     # print("No detection results found.")
-        #     return None
-
-        # pos = msg.detections[0].results[0].pose.pose.position
-        
-        # return torch.tensor([pos.x, pos.y, pos.z], device=self.device)
 
         return torch.tensor([msg.x, msg.y, msg.z], device=self.device)
     
@@ -768,13 +846,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             if robot_action and robot_init_pose:
                 target_pos = self.robot_dof_targets.clone()
 
-                joint3_index = self._robot.find_joints(["panda_joint3"])[0]
-                joint5_index = self._robot.find_joints(["panda_joint5"])[0]
-                joint7_index = self._robot.find_joints(["panda_joint7"])[0]
+                ## panda
+                # joint3_index = self._robot.find_joints(["panda_joint3"])[0]
+                # joint5_index = self._robot.find_joints(["panda_joint5"])[0]
+                # joint7_index = self._robot.find_joints(["panda_joint7"])[0]
                 
-                target_pos[:, joint3_index] = 0.0
-                target_pos[:, joint5_index] = 0.0
-                target_pos[:, joint7_index] = 0.707
+                ## ufactory
+                joint4_index = self._robot.find_joints(["joint4"])[0]
+                joint6_index = self._robot.find_joints(["joint6"])[0]
+                
+                target_pos[:, joint4_index] = 0.0
+                target_pos[:, joint6_index] = 0.0
                 
                 self._robot.set_joint_position_target(target_pos)
                 # self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -782,13 +864,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             elif robot_action == False and robot_init_pose == False:
                 init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
+                # joint_names = [
+                # "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
+                # "panda_joint5", "panda_joint6", "panda_joint7",
+                # "panda_finger_joint1", "panda_finger_joint2"
+                # ]
+                # joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
+                
                 joint_names = [
-                "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
-                "panda_joint5", "panda_joint6", "panda_joint7",
-                "panda_finger_joint1", "panda_finger_joint2"
+                "joint1", "joint2", "joint3", "joint4","joint5", "joint6", 
+                "drive_joint", "left_inner_knuckle_joint", "right_inner_knuckle_joint", "right_outer_knuckle_joint",
+                "left_finger_joint", "right_finger_joint"
                 ]
-                joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
-                # joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 1.600, 0.707, 0.035, 0.035]
+                joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035, 0.0, 0.0, 0.0]
 
                 for name, val in zip(joint_names, joint_values):
                     index = self._robot.find_joints(name)[0]
@@ -828,13 +916,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             if robot_init_pose == False:
                 init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
-                joint_names = [
-                "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
-                "panda_joint5", "panda_joint6", "panda_joint7",
-                "panda_finger_joint1", "panda_finger_joint2"
-                ]
-                joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
+                # joint_names = [
+                # "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
+                # "panda_joint5", "panda_joint6", "panda_joint7",
+                # "panda_finger_joint1", "panda_finger_joint2"
+                # ]
+                # joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
                 # joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 1.600, 0.707, 0.035, 0.035]
+                
+                joint_names = [
+                "joint1", "joint2", "joint3", "joint4","joint5", "joint6", 
+                "drive_joint", "left_inner_knuckle_joint", "right_inner_knuckle_joint", "right_outer_knuckle_joint",
+                "left_finger_joint", "right_finger_joint"
+                ]
+                joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035, 0.0, 0.0, 0.0]
 
                 for name, val in zip(joint_names, joint_values):
                     index = self._robot.find_joints(name)[0]
@@ -852,13 +947,21 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             elif robot_init_pose:
                 target_pos = self.robot_dof_targets.clone()
                 
-                joint3_index = self._robot.find_joints(["panda_joint3"])[0]
-                joint5_index = self._robot.find_joints(["panda_joint5"])[0]
-                joint7_index = self._robot.find_joints(["panda_joint7"])[0]
+                ## panda
+                # joint3_index = self._robot.find_joints(["panda_joint3"])[0]
+                # joint5_index = self._robot.find_joints(["panda_joint5"])[0]
+                # joint7_index = self._robot.find_joints(["panda_joint7"])[0]
                 
-                target_pos[:, joint3_index] = 0.0
-                target_pos[:, joint5_index] = 0.0
-                target_pos[:, joint7_index] = 0.707
+                # target_pos[:, joint3_index] = 0.0
+                # target_pos[:, joint5_index] = 0.0
+                # target_pos[:, joint7_index] = 0.707
+                
+                ## ufactory
+                joint4_index = self._robot.find_joints(["joint4"])[0]
+                joint6_index = self._robot.find_joints(["joint6"])[0]
+                
+                target_pos[:, joint4_index] = 0.0
+                target_pos[:, joint6_index] = 0.0
 
                 self._robot.set_joint_position_target(target_pos)
                 # self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -1113,7 +1216,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_reward_scale = 8.0
         vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
-        pview_reward_scale = 8.0
+        pview_reward_scale = 9.0
         joint_penalty_scale = 3.0
         
         if not hasattr(self, "init_robot_joint_position"):
@@ -1189,8 +1292,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
         
         # pview_margin = 0.20 # 초반 학습
-        # pview_margin = 0.15 # 중반 학습
-        pview_margin = 0.10 # 후반 학습
+        pview_margin = 0.15 # 중반 학습
+        # pview_margin = 0.10 # 후반 학습
         out_of_fov_mask = center_offset > pview_margin
 
         pview_reward = torch.where(
