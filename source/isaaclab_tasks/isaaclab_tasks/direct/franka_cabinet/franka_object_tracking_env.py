@@ -49,18 +49,18 @@ class RobotType(Enum):
     FRANKA = "franka"
     UF = "ufactory"
     DOOSAN = "doosan"
-robot_type = RobotType.UF
+robot_type = RobotType.DOOSAN
 
 class ObjectMoveType(Enum):
     STATIC = "static"
     CIRCLE = "circle"
     LINEAR = "linear"
-object_move = ObjectMoveType.LINEAR
+object_move = ObjectMoveType.STATIC
 
-training_mode = False
-foundationpose_mode = True
+training_mode = True
+foundationpose_mode = False
 
-camera_enable = True
+camera_enable = False
 image_publish = False
 
 robot_action = False
@@ -226,8 +226,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
 
     Doosan_robot = ArticulationCfg(
         prim_path="/World/envs/env_.*/Doosan_M1013",
+        # prim_path="/World/envs/env_.*/m1013",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Doosan_M1013/M1013_onrobot.usd",
+            usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Doosan_M1013/M1013_onrobot_with_gripper/M1013_onrobot.usda",
+            # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Doosan_M1013/m1013_with_gripper/m1013_with_gripper.usd",
+            # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Doosan_M1013/m1013/m1013.usd",
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=True,
@@ -240,13 +243,22 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         init_state=ArticulationCfg.InitialStateCfg(
             joint_pos={
                 "J1_joint":  0.00,
-                "J2_joint":  -0.60,
+                "J2_joint": -0.60,
                 "J3_joint":  1.80,
                 "J4_joint":  0.00,
                 "J5_joint":  1.25,
                 "J6_joint":  0.00,
                 "left_joint" : 0.0,
                 "right_joint": 0.0
+                
+                # "joint1":  0.00,
+                # "joint2": -0.60,
+                # "joint3":  1.80,
+                # "joint4":  0.00,
+                # "joint5":  1.25,
+                # "joint6" : 0.00,
+                # "left_joint" : 0.0,
+                # "right_joint": 0.0
             },
             pos=(1.0, 0.0, 0.05),
             rot=(0.0, 0.0, 0.0, 1.0),
@@ -254,6 +266,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         actuators={
             "doosan_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["J1_joint", "J2_joint", "J3_joint"],
+                # joint_names_expr=["joint1", "joint2", "joint3"],
                 effort_limit=87.0,
                 # velocity_limit=2.175,
                 velocity_limit=0.2,
@@ -264,6 +277,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             ),
             "doosan_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["J4_joint", "J5_joint", "J6_joint"],
+                # joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
                 # velocity_limit=2.61,
                 velocity_limit=0.2,
@@ -326,7 +340,9 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             
         elif robot_type == RobotType.DOOSAN:
             camera = CameraCfg(
-                prim_path="/World/envs/env_.*/Doosan_M1013/gripper/onrobot_2fg_14/base/hand_camera", 
+                # prim_path="/World/envs/env_.*/Doosan_M1013/gripper/onrobot_2fg_14/base/hand_camera", 
+                prim_path="/World/envs/env_.*/Doosan_M1013/J6/hand_camera", 
+                # prim_path="/World/envs/env_.*/m1013/link6/hand_camera", 
                 update_period=0.03,
                 height=480,
                 width=640,
@@ -338,9 +354,10 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                     clipping_range=(0.1, 1.0e5),
                 ),
                 offset=CameraCfg.OffsetCfg(
-                    pos=(0.0, 0.0, 0.0),
-                    rot=(-0.5, 0.5, -0.5, -0.5), #ROS
+                    pos=(0.0, 0.0, 1.5),
+                    # rot=(-0.5, 0.5, -0.5, -0.5), #ROS
                     # rot=(-0.5, -0.5, -0.5, 0.5), #ros
+                    rot=(0.0, -0.707, 0.707, 0.0),
                     convention="ROS",
                 )
             )
@@ -537,18 +554,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6_with_gripper/right_finger")),
                 self.device,
             )
-            
             self.hand_link_idx = self._robot.find_bodies("link6")[0][0]
             self.left_finger_link_idx = self._robot.find_bodies("left_finger")[0][0]
             self.right_finger_link_idx = self._robot.find_bodies("right_finger")[0][0]
              
         elif robot_type == RobotType.DOOSAN:
+            
             self.robot_dof_speed_scales[self._robot.find_joints("left_joint")[0]] = 0.1
             self.robot_dof_speed_scales[self._robot.find_joints("right_joint")[0]] = 0.1
             
             hand_pose = get_env_local_pose(
                 self.scene.env_origins[0],
-                UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Doosan_M1013/gripper")),
+                UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Doosan_M1013/J6")),
                 self.device,
             )
             lfinger_pose = get_env_local_pose(
@@ -561,7 +578,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Doosan_M1013/gripper/onrobot_2fg_14/Right")),
                 self.device,
             )
-            
             self.hand_link_idx = self._robot.find_bodies("J6")[0][0]
             self.left_finger_link_idx = self._robot.find_bodies("Left")[0][0]
             self.right_finger_link_idx = self._robot.find_bodies("Right")[0][0]
@@ -592,7 +608,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.gripper_forward_axis = torch.tensor([0, 0, -1], device=self.device, dtype=torch.float32).repeat(
                 (self.num_envs, 1)
             )
-        self.gripper_up_axis = torch.tensor([0, 1, 0], device=self.device, dtype=torch.float32).repeat(
+            
+        self.gripper_up_axis = torch.tensor([1, 0, 0], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
         )
         
@@ -620,11 +637,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.box_pos_cam = torch.zeros((self.num_envs, 4), device=self.device)
         
         ## 학습 초기 (좁은 범위)
-        self.rand_pos_range = {
-            "x" : ( -0.15,  0.30),
-            "y" : ( -0.30,  0.30),
-            "z" : (  0.055, 0.3)
-        }
+        # self.rand_pos_range = {
+        #     "x" : ( -0.15,  0.30),
+        #     "y" : ( -0.30,  0.30),
+        #     "z" : (  0.055, 0.3)
+        # }
         
         ## 학습 후기 (넓은 범위)
         # self.rand_pos_range = {
@@ -640,7 +657,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # "y" : ( -0.001,  0.001),
                 # "z" : (  0.1, 0.1)
 
-                "x" : ( -0.10,  0.30),
+                "x" : ( -0.40,  0.20),
                 "y" : ( -0.40,  0.40),
                 "z" : (  0.055, 0.3)
             }
@@ -835,7 +852,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         return q_conj
     
     def compute_camera_world_pose(self, hand_pos, hand_rot):
-
         if robot_type == RobotType.FRANKA:
             cam_offset_pos = torch.tensor([0.0, 0.0, 0.05], device=hand_pos.device).repeat(self.num_envs, 1)
             q_cam_in_hand = torch.tensor([0.0, 0.707, 0.707, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
@@ -844,7 +860,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             q_cam_in_hand = torch.tensor([0.0, 0.707, 0.707, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
         elif robot_type == RobotType.DOOSAN:
             cam_offset_pos = torch.tensor([0.0, 0.0, 0.0], device=hand_pos.device).repeat(self.num_envs, 1)
-            q_cam_in_hand = torch.tensor([0.5, -0.5, 0.5, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
+            q_cam_in_hand = torch.tensor([-0.5, 0.5, -0.5, -0.5], device=hand_pos.device).repeat(self.num_envs, 1)
 
         hand_rot_matrix = kornia.geometry.conversions.quaternion_to_rotation_matrix(hand_rot)
         cam_offset_pos_world = torch.bmm(hand_rot_matrix, cam_offset_pos.unsqueeze(-1)).squeeze(-1)
@@ -852,9 +868,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         camera_pos_w = hand_pos + cam_offset_pos_world
         camera_pos_w = camera_pos_w - self.scene.env_origins
         
-        # camera_rot_w = self.quaternion_multiply(hand_rot, q_cam_in_hand)
+        # camera_rot_w = self.quat_mul(hand_rot, q_cam_in_hand)
+        camera_rot_w = self.robot_grasp_rot
+        
+        # if robot_type == RobotType.DOOSAN:
+        #     camera_rot_w = self.quat_mul(self.robot_grasp_rot, q_cam_in_hand)
 
-        return camera_pos_w, #camera_rot_w
+        return camera_pos_w, camera_rot_w
 
     def world_to_camera_pose(self, camera_pos_w, camera_rot_w, obj_pos_w, obj_rot_w):
         rel_pos = obj_pos_w - camera_pos_w
@@ -997,6 +1017,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.DOOSAN:
             joint_names = [
             "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
+            # "joint1", "joint2", "joint3","joint4", "joint5","joint6" ]
             joint_values = [0.000, -0.600, 1.800, 0.000, 1.250, 0.000] 
             
         target_pos = self.robot_dof_targets.clone()
@@ -1016,6 +1037,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.DOOSAN:
             joint4_index = self._robot.find_joints(["J4_joint"])[0]
             joint6_index = self._robot.find_joints(["J6_joint"])[0]
+            # joint4_index = self._robot.find_joints(["joint4"])[0]
+            # joint6_index = self._robot.find_joints(["joint6"])[0]
             target_pos[:, joint4_index] = 0.0
             target_pos[:, joint6_index] = 0.0
 
@@ -1099,10 +1122,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         robot_left_finger_pos = self._robot.data.body_link_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_link_pos_w[:, self.right_finger_link_idx]
 
-        camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
-        camera_rot_w = self.robot_grasp_rot
+        # camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
+        # camera_rot_w = self.robot_grasp_rot
         
-        # camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
 
         
         self.box_pos_cam, box_rot_cam = self.world_to_camera_pose(
@@ -1197,8 +1220,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         global robot_action
         
-        camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
-        camera_rot_w = self.robot_grasp_rot
+        # camera_pos_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
+        # camera_rot_w = self.robot_grasp_rot
+        
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
         
         # print(f"isaac_camera_pos : {camera_pos_w}")
         
@@ -1404,7 +1429,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
-        print("center_offset : ", center_offset)
+            
+        # print("box_pos_cam : ", box_pos_cam)
+        # print("center_offset : ", center_offset)
         
         pview_margin = 0.20 # 학습 초기
         # pview_margin = 0.15 # 학습 중기
@@ -1437,6 +1464,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.DOOSAN:
             joint4_idx = self._robot.find_joints(["J4_joint"])[0]
             joint6_idx = self._robot.find_joints(["J6_joint"])[0]
+            # joint4_idx = self._robot.find_joints(["joint4"])[0]
+            # joint6_idx = self._robot.find_joints(["jiont6"])[0]
             joint_weights[:, joint4_idx] = 0.0
             joint_weights[:, joint6_idx] = 0.0
             
