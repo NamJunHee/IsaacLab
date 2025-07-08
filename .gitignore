@@ -61,4 +61,3 @@ _build
 # Pre-Trained Checkpoints
 /.pretrained_checkpoints/
 
-logs/skrl/
