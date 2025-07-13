@@ -55,8 +55,8 @@ class ObjectMoveType(Enum):
     STATIC = "static"
     CIRCLE = "circle"
     LINEAR = "linear"
-object_move = ObjectMoveType.STATIC
-# object_move = ObjectMoveType.LINEAR
+# object_move = ObjectMoveType.STATIC
+object_move = ObjectMoveType.LINEAR
 
 training_mode = True
 foundationpose_mode = False
@@ -73,7 +73,7 @@ init_reward = True
 
 # add_episode_length = -400 # 초기 학습 시 episode 길이
 # add_episode_length = -100
-add_episode_length = 300
+add_episode_length = 100
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -203,7 +203,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["joint1", "joint2", "joint3"],
                 effort_limit=87.0,
                 # velocity_limit=2.175,
-                velocity_limit=0.22,
+                # velocity_limit=0.22,
+                velocity_limit=0.6,
                 stiffness=20.0,
                 # stiffness=200.0,
                 # damping=4.0,
@@ -213,7 +214,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
                 # velocity_limit=2.61,
-                velocity_limit=0.22,
+                # velocity_limit=0.22,
+                velocity_limit=0.6,
                 stiffness=20.0,
                 # stiffness=200.0,
                 # damping=4.0,
@@ -222,7 +224,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             "ufactory_hand": ImplicitActuatorCfg(
                 joint_names_expr=["left_finger_joint", "right_finger_joint"],
                 effort_limit=200.0,
-                velocity_limit=0.5,
+                velocity_limit=0.2,
                 stiffness=2e3,
                 damping=1e2,
             ),
@@ -688,7 +690,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self.rand_pos_step = 0
         # self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
         
-        self.obj_speed = 0.0005
+        self.obj_speed = 0.001
+        # self.obj_speed = 0.0005
         
         rclpy.init()
         self.last_publish_time = 0.0
@@ -1356,11 +1359,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # joint_penalty_scale = 3.0
         
         distance_reward_scale = 8.0
-        vector_align_reward_scale = 8.0
-        position_align_reward_scale = 8.0
-        pview_reward_scale = 8.0
+        vector_align_reward_scale = 10.0
+        position_align_reward_scale = 6.0
+        pview_reward_scale = 9.0
         veloity_align_reward_scale = 2.0
-        joint_penalty_scale = 2.0
+        joint_penalty_scale = 3.0
         
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -1369,9 +1372,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         ## 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
         if robot_type == RobotType.FRANKA or robot_type == RobotType.UF:
-            min_dist = 0.20
-            max_dist = 0.30
-            target_distance = 0.25
+            min_dist = 0.30
+            max_dist = 0.40
+            target_distance = 0.35
         elif robot_type == RobotType.DOOSAN:
             min_dist = 0.30
             max_dist = 0.40
@@ -1397,7 +1400,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # if init_reward:
         #     distance_reward[within_range] = 1.0
         #     # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
-        #     linear_penalty_scale = 10.0
+        #     linear_penalty_scale = 2.0
         #     distance_reward[too_close_or_far] = 1.0 - linear_penalty_scale * distance_error[too_close_or_far]
         # else:
         #     max_error_in_range = max(abs(target_distance - min_dist), abs(target_distance - max_dist)) + eps
@@ -1418,8 +1421,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         grasp_axis = torch.cat([xy_scaled, z_component], dim=-1)
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
 
-        vector_align_margin = 0.90 # 초반 학습
-        # vector_align_margin = 0.95 # 후반 학습
+        # vector_align_margin = 0.90
+        vector_align_margin = 0.95
         # if robot_type == RobotType.DOOSAN:
         #     vector_align_margin = 0.776 ##doosan
             
@@ -1457,7 +1460,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         ## position_alignment_reward (그리퍼가 물체의 잡기축에 수직으로 위치하는지 확인)
         gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - box_pos_w, grasp_axis, dim=-1),dim=-1)        
 
-        position_align_margin = 0.05
+        position_align_margin = 0.1
+        # position_align_margin = 0.05
+        
         max_proj_dist = 0.15 
         start_reward = 0.0        
         slope = -10.0
@@ -1480,7 +1485,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         #     #     10.0 * (gripper_proj_dist[gripper_proj_dist > position_align_margin] - position_align_margin)
         #     # )
             
-        #     linear_penalty_scale = 20.0  # 기울기, 0.05m 벗어나면 보상 -1.0
+        #     linear_penalty_scale = 2.0  # 기울기, 0.05m 벗어나면 보상 -1.0
         #     beyond_margin = gripper_proj_dist > position_align_margin
         #     position_alignment_reward[beyond_margin] = (
         #         1.0 - linear_penalty_scale * (gripper_proj_dist[beyond_margin] - position_align_margin)
@@ -1541,7 +1546,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         #     pview_reward[within_margin] = 1.0
     
         #     beyond_margin = center_offset > pview_margin
-        #     linear_penalty_scale = 10.0
+        #     linear_penalty_scale = 2.0
         #     pview_reward[beyond_margin] = (
         #         1.0 - linear_penalty_scale * (center_offset[beyond_margin] - pview_margin)
         #     )
