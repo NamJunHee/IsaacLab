@@ -58,11 +58,11 @@ class ObjectMoveType(Enum):
 # object_move = ObjectMoveType.STATIC
 object_move = ObjectMoveType.LINEAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
+camera_enable = True
+image_publish = True
 
 robot_action = False
 robot_init_pose = False
@@ -71,9 +71,9 @@ robot_fix = False
 
 init_reward = True
 
-# add_episode_length = -400 # 초기 학습 시 episode 길이
+add_episode_length = -400 # 초기 학습 시 episode 길이
 # add_episode_length = -100
-add_episode_length = 100
+# add_episode_length = 500
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -204,22 +204,18 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 effort_limit=87.0,
                 # velocity_limit=2.175,
                 # velocity_limit=0.22,
-                velocity_limit=0.6,
-                stiffness=20.0,
-                # stiffness=200.0,
-                # damping=4.0,
-                damping=25.0,
+                velocity_limit=0.8,
+                stiffness=100.0,
+                damping=20.0,
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
                 # velocity_limit=2.61,
                 # velocity_limit=0.22,
-                velocity_limit=0.6,
-                stiffness=20.0,
-                # stiffness=200.0,
-                # damping=4.0,
-                damping=25.0,
+                velocity_limit=0.8,
+                stiffness=100.0,
+                damping=20.0,
             ),
             "ufactory_hand": ImplicitActuatorCfg(
                 joint_names_expr=["left_finger_joint", "right_finger_joint"],
@@ -499,7 +495,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # "y" : ( -0.001,  0.001),
             # "z" : (  0.1, 0.1),
                 
-            "x" : ( -0.15,  0.30),
+            # "x" : ( -0.15,  0.30),
+            "x" : ( 0.0,  0.30),
             "y" : ( -0.30,  0.30),
             "z" : (  0.055, 0.3)
         }
@@ -690,8 +687,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self.rand_pos_step = 0
         # self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
         
-        self.obj_speed = 0.001
-        # self.obj_speed = 0.0005
+        # self.obj_speed = 0.0008
+        self.obj_speed = 0.0005
         
         rclpy.init()
         self.last_publish_time = 0.0
@@ -1164,7 +1161,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         
         # robot state ---------------------------------------------------------------------------------
-        if training_mode:
+        # if training_mode:
+        if 1:
             joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
                 -0.125,
                 0.125,
