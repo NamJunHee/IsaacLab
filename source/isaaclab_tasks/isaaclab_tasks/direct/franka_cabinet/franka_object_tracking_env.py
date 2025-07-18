@@ -71,9 +71,9 @@ robot_fix = False
 
 init_reward = True
 
-add_episode_length = -400 # 초기 학습 시 episode 길이
-# add_episode_length = -100
-# add_episode_length = 500
+# add_episode_length = 200
+add_episode_length = 600
+# add_episode_length = -400 # 초기 학습 시 episode 길이
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -202,20 +202,26 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             "ufactory_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3"],
                 effort_limit=87.0,
-                # velocity_limit=2.175,
-                # velocity_limit=0.22,
-                velocity_limit=0.8,
-                stiffness=100.0,
-                damping=20.0,
+                
+                velocity_limit=2.61,
+                stiffness=2000.0,
+                damping=100.0,
+                
+                # velocity_limit=0.8,
+                # stiffness=80.0,
+                # damping=18.0,
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
-                # velocity_limit=2.61,
-                # velocity_limit=0.22,
-                velocity_limit=0.8,
-                stiffness=100.0,
-                damping=20.0,
+                
+                velocity_limit=2.61,
+                stiffness=2000.0,
+                damping=100.0,
+                
+                # velocity_limit=0.8,
+                # stiffness=80.0,
+                # damping=18.0,
             ),
             "ufactory_hand": ImplicitActuatorCfg(
                 joint_names_expr=["left_finger_joint", "right_finger_joint"],
@@ -519,6 +525,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # "y" : ( -0.30,  0.30),
                 # "z" : (  0.055, 0.3)
             }
+            
+        if robot_type == RobotType.FRANKA:
+            self.joint_names = [
+            "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
+            "panda_joint5", "panda_joint6", "panda_joint7",
+            "panda_finger_joint1", "panda_finger_joint2"
+            ]
+            self.joint_init_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
+        elif robot_type == RobotType.UF:
+            self.joint_names = [
+            "joint1", "joint2", "joint3", "joint4","joint5", "joint6", ]
+            self.joint_init_values = [0.000, -1.220, -0.780, -0.000, 1.300, 0.000]
+        elif robot_type == RobotType.DOOSAN:
+            self.joint_names = [
+            "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
+            # "joint1", "joint2", "joint3","joint4", "joint5","joint6" ]
+            self.joint_init_values = [0.000, -0.600, 1.800, 0.000, 1.250, 0.000] 
 
         def get_env_local_pose(env_pos: torch.Tensor, xformable: UsdGeom.Xformable, device: torch.device):
             """Compute pose in env-local coordinates"""
@@ -687,8 +710,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # self.rand_pos_step = 0
         # self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
         
-        # self.obj_speed = 0.0008
-        self.obj_speed = 0.0005
+        # self.obj_speed = 0.0005
+        self.obj_speed = 0.001
+        # self.obj_speed = 0.002
         
         rclpy.init()
         self.last_publish_time = 0.0
@@ -950,14 +974,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        
         self.cfg.current_time = self.cfg.current_time + self.dt
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
+        print(f"self._robot.num_joints: {self._robot.num_joints}")
         # 카메라 ros2 publish----------------------------------------------------------------------------------------------
         if image_publish:   
             self.last_publish_time += self.dt
-            if self.last_publish_time >= (1.0 / 15.0):  # 정확히 30fps 기준
+            if self.last_publish_time >= (1.0 / 15.0):  # 30fps 기준
                 self.publish_camera_data()
                 rclpy.spin_once(self.node, timeout_sec=0.001)
                 self.last_publish_time = 0.0
@@ -1015,24 +1039,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         global robot_action
         global robot_init_pose
         
-        if robot_type == RobotType.FRANKA:
-            joint_names = [
-            "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
-            "panda_joint5", "panda_joint6", "panda_joint7",
-            "panda_finger_joint1", "panda_finger_joint2"
-            ]
-            joint_values = [0.000, -0.831, 0.000, -1.796, 0.000, 2.033, 0.707, 0.035, 0.035]
-        elif robot_type == RobotType.UF:
-            joint_names = [
-            "joint1", "joint2", "joint3", "joint4","joint5", "joint6" ]
-            joint_values = [0.000, -1.220, -0.780, -0.000, 1.300, 0.000]
-        elif robot_type == RobotType.DOOSAN:
-            joint_names = [
-            "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
-            # "joint1", "joint2", "joint3","joint4", "joint5","joint6" ]
-            joint_values = [0.000, -0.600, 1.800, 0.000, 1.250, 0.000] 
+        
             
         target_pos = self.robot_dof_targets.clone()
+        # print(f"target_pos: {target_pos}")
         
         if robot_type == RobotType.FRANKA:
             joint3_index = self._robot.find_joints(["panda_joint3"])[0]
@@ -1046,6 +1056,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             joint6_index = self._robot.find_joints(["joint6"])[0]
             target_pos[:, joint4_index] = 0.0
             target_pos[:, joint6_index] = 0.0
+            target_pos[:, 7:] = 0.0
         elif robot_type == RobotType.DOOSAN:
             joint4_index = self._robot.find_joints(["J4_joint"])[0]
             joint6_index = self._robot.find_joints(["J6_joint"])[0]
@@ -1053,8 +1064,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # joint6_index = self._robot.find_joints(["joint6"])[0]
             target_pos[:, joint4_index] = 0.0
             target_pos[:, joint6_index] = 0.0
-
-
+        
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
                 self._robot.set_joint_position_target(target_pos)
@@ -1063,7 +1073,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             elif robot_action == False and robot_init_pose == False:
                 init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
-                for name, val in zip(joint_names, joint_values):
+                for name, val in zip(self.joint_names, self.joint_init_values):
                     index = self._robot.find_joints(name)[0]
                     init_pos[:, index] = val
 
@@ -1092,7 +1102,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif training_mode == True and robot_fix == False:
             if robot_init_pose == False:
                 init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-                for name, val in zip(joint_names, joint_values):
+                for name, val in zip(self.joint_names, self.joint_init_values):
                     index = self._robot.find_joints(name)[0]
                     init_pos[:, index] = val
 
@@ -1161,18 +1171,37 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         
         # robot state ---------------------------------------------------------------------------------
-        # if training_mode:
-        if 1:
-            joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-                -0.125,
-                0.125,
-                (len(env_ids), self._robot.num_joints),
-                self.device,
-            )
+        if training_mode:
+            # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+            #     -0.125,
+            #     0.125,
+            #     (len(env_ids), self._robot.num_joints),
+            #     self.device,
+            # )
+            
+            
+            
             joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
             joint_vel = torch.zeros_like(joint_pos)
             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
             self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        else:
+            # 최초 한 번만 실행
+            if not hasattr(self, "_initialized"):
+                self._initialized = False
+
+            if not self._initialized:
+                joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+                -0.125,
+                0.125,
+                (len(env_ids), self._robot.num_joints),
+                self.device,
+                )
+                joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+                joint_vel = torch.zeros_like(joint_pos)
+                self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+                self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+                self._initialized = True
         
         # 물체 원 운동 (원 운동 시 환경 초기화 코드)------------------------------------------------------------------------------------------------------------
         reset_pos = self.box_center
@@ -1350,18 +1379,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         gripper_forward_axis,
         gripper_up_axis,
     ):
-        # distance_reward_scale = 6.0
-        # vector_align_reward_scale = 10.0
-        # position_align_reward_scale = 6.0
-        # pview_reward_scale = 8.0
-        # joint_penalty_scale = 3.0
-        
         distance_reward_scale = 8.0
-        vector_align_reward_scale = 10.0
+        vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
-        pview_reward_scale = 9.0
+        pview_reward_scale = 8.0
         veloity_align_reward_scale = 2.0
         joint_penalty_scale = 3.0
+        
+        # distance_reward_scale = 10.0
+        # vector_align_reward_scale = 8.0
+        # position_align_reward_scale = 6.0
+        # pview_reward_scale = 10.0
+        # veloity_align_reward_scale = 2.0
+        # joint_penalty_scale = 3.0
         
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -1371,8 +1401,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         ## 거리 유지 보상 (그리퍼와 물체 간 거리 일정 유지)
         if robot_type == RobotType.FRANKA or robot_type == RobotType.UF:
             min_dist = 0.30
-            max_dist = 0.40
-            target_distance = 0.35
+            max_dist = 0.20
+            target_distance = 0.25
         elif robot_type == RobotType.DOOSAN:
             min_dist = 0.30
             max_dist = 0.40
@@ -1382,19 +1412,25 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_error = torch.abs(gripper_to_box_dist - target_distance)
         
         within_range = (gripper_to_box_dist >= min_dist) & (gripper_to_box_dist <= max_dist)
+        too_close = distance_error < min_dist
+        too_far = distance_error > max_dist
+        
         too_close_or_far = ~within_range
         
         distance_reward = torch.zeros_like(gripper_to_box_dist)
        
         ## 학습 초기 상수 보상
-        distance_reward[within_range] = 1.0
-        distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
+        # distance_reward[within_range] = 1.0
+        # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
 
         ## 학습 후기 선형 보상
-        # k = 2.0  # 보상 기울기 
-        # distance_reward[within_range] = 1.0 - k * distance_error[within_range]
+        k = 2.0  # 보상 기울기 
+        distance_reward[within_range] = 1.0 - k * distance_error[within_range]
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
         
+        distance_reward[too_close] = -3.0 * torch.tanh(10.0 * (min_dist - distance_error[too_close]))
+        distance_reward[too_far] = -1.0 * torch.tanh(5.0 * (distance_error[too_far] - max_dist))
+
         # if init_reward:
         #     distance_reward[within_range] = 1.0
         #     # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
@@ -1430,8 +1466,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         vector_alignment_reward = torch.where(
             alignment_cos >= vector_align_margin,
-            1, # 학습 초기 상수 보상
-            # alignment_cos, # 학습 후기 선형 보상
+            # 1, # 학습 초기 상수 보상
+            alignment_cos, # 학습 후기 선형 보상
             -1.0 * (1.0 - alignment_cos)
             # -3
         )
@@ -1505,8 +1541,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
 
-        pview_margin = 0.20 # 학습 초기
-        # pview_margin = 0.15 # 학습 중기
+        # pview_margin = 0.20 # 학습 초기
+        pview_margin = 0.15 # 학습 중기
         # pview_margin = 0.10 # 학습 후기
         out_of_fov_mask = center_offset > pview_margin
 

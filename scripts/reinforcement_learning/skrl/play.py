@@ -16,6 +16,16 @@ import argparse
 
 from isaaclab.app import AppLauncher
 
+import os
+import sys
+import time
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+
+from xarm.wrapper import XArmAPI
+
+ip = "192.168.1.208"
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -177,9 +187,18 @@ def main():
 
         # run everything in inference mode
         with torch.inference_mode():
+            # print("*" * 20)
             # agent stepping
             outputs = runner.agent.act(obs, timestep=0, timesteps=0)
             actions = outputs[-1].get("mean_actions", outputs[0])
+            # print(f"[INFO] Actions: {actions}")
+            
+            angle_cmd = actions.detach().cpu().numpy().tolist()
+            # print(f"angle_cmd: {angle_cmd}")
+            
+            # print(env.action_space)
+            # arm.set_servo_angle(angle=angle_cmd, speed=30, wait=False)
+            
             # env stepping
             obs, _, _, _, _ = env.step(actions)
         if args_cli.video:
@@ -198,6 +217,7 @@ def main():
 
 
 if __name__ == "__main__":
+
     # run the main function
     main()
     # close sim app
