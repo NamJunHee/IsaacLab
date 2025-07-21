@@ -58,11 +58,11 @@ class ObjectMoveType(Enum):
 # object_move = ObjectMoveType.STATIC
 object_move = ObjectMoveType.LINEAR
 
-training_mode = False
+training_mode = True
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
+camera_enable = False
+image_publish = False
 
 robot_action = False
 robot_init_pose = False
@@ -71,9 +71,9 @@ robot_fix = False
 
 init_reward = True
 
-# add_episode_length = 200
-add_episode_length = 600
-# add_episode_length = -400 # 초기 학습 시 episode 길이
+add_episode_length = 100
+# add_episode_length = 600
+# add_episode_length = -600
     
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -203,11 +203,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["joint1", "joint2", "joint3"],
                 effort_limit=87.0,
                 
-                velocity_limit=2.61,
+                # velocity_limit=2.61,
                 stiffness=2000.0,
                 damping=100.0,
                 
-                # velocity_limit=0.8,
+                velocity_limit=0.8,
                 # stiffness=80.0,
                 # damping=18.0,
             ),
@@ -215,11 +215,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["joint4", "joint5", "joint6"],
                 effort_limit=12.0,
                 
-                velocity_limit=2.61,
+                # velocity_limit=2.61,
                 stiffness=2000.0,
                 damping=100.0,
                 
-                # velocity_limit=0.8,
+                velocity_limit=0.8,
                 # stiffness=80.0,
                 # damping=18.0,
             ),
@@ -977,7 +977,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.cfg.current_time = self.cfg.current_time + self.dt
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
-        print(f"self._robot.num_joints: {self._robot.num_joints}")
         # 카메라 ros2 publish----------------------------------------------------------------------------------------------
         if image_publish:   
             self.last_publish_time += self.dt
@@ -1039,8 +1038,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         global robot_action
         global robot_init_pose
         
-        
-            
         target_pos = self.robot_dof_targets.clone()
         # print(f"target_pos: {target_pos}")
         
@@ -1179,8 +1176,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             #     self.device,
             # )
             
+            joint_pos = torch.zeros((len(env_ids), self._robot.num_joints), device=self.device)
             
+            for i, name in enumerate(self.joint_names):
+                joint_idx = self._robot.find_joints([name])[0]
+                joint_pos[:, joint_idx] = self.joint_init_values[i]
             
+            # print(f"joint_pos : {joint_pos}")
             joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
             joint_vel = torch.zeros_like(joint_pos)
             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
@@ -1379,12 +1381,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         gripper_forward_axis,
         gripper_up_axis,
     ):
-        distance_reward_scale = 8.0
+        distance_reward_scale = 10.0
         vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
-        pview_reward_scale = 8.0
+        pview_reward_scale = 12.0
         veloity_align_reward_scale = 2.0
-        joint_penalty_scale = 3.0
+        joint_penalty_scale = 5.0
         
         # distance_reward_scale = 10.0
         # vector_align_reward_scale = 8.0
@@ -1666,6 +1668,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         weighted_joint_deviation = joint_deviation * joint_weights
         joint_penalty = torch.sum(weighted_joint_deviation, dim=-1)
         joint_penalty = torch.tanh(joint_penalty)
+        
+        # 안정성 유지 패널티
+        # joint_motion = torch.abs(self._robot.data.joint_pos - self.prev_joint_pos)
+        # motion_penalty = torch.sum(joint_motion * joint_weights, dim=-1)
+        # motion_penalty = torch.tanh(motion_penalty)
                 
         ## 최종 보상 계산
         rewards = (
@@ -1676,6 +1683,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # + veloity_align_reward_scale * velocity_alignment_reward
             - joint_penalty_scale * joint_penalty 
         )
+        
+        
         
         # print("=====================================")
         # print("gripper_to_box_dist : ", gripper_to_box_dist)
