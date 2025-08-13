@@ -55,14 +55,14 @@ class ObjectMoveType(Enum):
     STATIC = "static"
     CIRCLE = "circle"
     LINEAR = "linear"
-# object_move = ObjectMoveType.STATIC
-object_move = ObjectMoveType.LINEAR
+object_move = ObjectMoveType.STATIC
+# object_move = ObjectMoveType.LINEAR
 
-training_mode = False
+training_mode = True
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
+camera_enable = False
+image_publish = False
 
 robot_action = False
 robot_init_pose = False
@@ -70,16 +70,17 @@ robot_fix = False
 
 init_reward = True
 
-add_episode_length = 200
-# add_episode_length = 600
-# add_episode_length = -600
+add_episode_length = -300
+# add_episode_length = 400
+# add_episode_length = 800
 # add_episode_length = -400
 
 vel_ratio = 0.10 # max 2.61s
 
 # obj_speed = 0.0005
 # obj_speed = 0.001
-obj_speed = 0.002
+obj_speed = 0.0015
+# obj_speed = 0.002
 
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -202,7 +203,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 "joint2": -1.22,
                 "joint3": -0.50,
                 "joint4":  0.00,
-                "joint5":  0.30,
+                # "joint5":  0.30,
+                "joint5":  0.80,
                 "joint6":  0.00,
                 # "left_finger_joint" : 0.0,
                 # "right_finger_joint": 0.0,
@@ -349,7 +351,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 width=640,
                 data_types=["rgb", "depth"],
                 spawn=sim_utils.PinholeCameraCfg(
-                    focal_length=15.0, # 값이 클수록 확대
+                    focal_length=10.0, # 값이 클수록 확대
                     focus_distance=60.0,
                     horizontal_aperture=50.0,
                     clipping_range=(0.1, 1.0e5),
@@ -456,7 +458,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## mustard
     box = RigidObjectCfg(
         prim_path="/World/envs/env_.*/base_link",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0, 0.4), rot=(0.923, 0, 0, -0.382)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.6, 0, 0.3), rot=(0.923, 0, 0, -0.382)),
         spawn=UsdFileCfg(
                 # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/003_cracker_box/003_cracker_box.usd",
                 # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/005_tomato_soup_can/005_tomato_soup_can.usd",
@@ -511,13 +513,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # 학습 초기 (좁은 범위)
         self.rand_pos_range = {
-            # "x" : ( 0.20,  0.20),
+            # "x" : ( 0.50,  0.50),
             # "y" : ( -0.001,  0.001),
-            "z" : (  -0.1, -0.1),
+            # "z" : (  0.2, 0.5),
                 
-            "x" : ( 0.05,  0.25),
-            "y" : ( -0.20,  0.20),
-            # "z" : ( 0.10,  0.25)
+            "x" : (  0.30, 0.70),
+            "y" : ( -0.35, 0.35),
+            "z" : (  0.10, 0.60),
+            
+            # "x" : ( 0.35,  0.60),
+            # "y" : ( -0.20,  0.20),
+            # "z" : (  0.20, 0.70),
         }
         
         ## 학습 후기 (넓은 범위)
@@ -549,7 +555,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.UF:
             self.joint_names = [
             "joint1", "joint2", "joint3", "joint4","joint5", "joint6", ]
-            self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.300, 0.000]
+            # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.300, 0.000]
+            self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.800, 0.000]
         elif robot_type == RobotType.DOOSAN:
             self.joint_names = [
             "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
@@ -721,7 +728,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
             ], dim = 1)
         
-        self.target_box_pos = self.target_box_pos + self.box_center
+        self.target_box_pos = self.target_box_pos + self.scene.env_origins
         # self.rand_pos_step = 0
         # self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
         
@@ -1024,7 +1031,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
                 ], dim = 1)
 
-                self.target_box_pos = self.target_box_pos + self.box_center
+                self.target_box_pos = self.target_box_pos + self.scene.env_origins
 
                 self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
                 self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
@@ -1231,7 +1238,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
         ], dim = 1)
         
-        rand_reset_pos = self.rand_pos + self.box_center
+        rand_reset_pos = self.rand_pos + self.scene.env_origins
         
         random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
         rand_reset_rot = torch.stack([
@@ -1402,11 +1409,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # ee_motion_penalty_weight = 0.0
         
         distance_reward_scale = 10.0
-        vector_align_reward_scale = 10.0
+        vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
-        pview_reward_scale = 8.0
+        pview_reward_scale = 9.0
         veloity_align_reward_scale = 2.0
-        joint_penalty_scale = 2.0
+        joint_penalty_scale = 1.0
         
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -1448,7 +1455,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
         
         distance_reward[too_close] = -2.0 * torch.tanh(10.0 * distance_error[too_close])
-        distance_reward[too_far] = -1.0 * torch.tanh(5.0 * distance_error[too_far])
+        distance_reward[too_far] = -3.0 * torch.tanh(5.0 * distance_error[too_far])
 
         ## 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터) 그리퍼 위치가 잡기축 위에 있는지 확인
         # robot_origin = self.scene.env_origins + torch.tensor([1.0, 0.0, 0.0], device=self.scene.env_origins.device)
@@ -1506,8 +1513,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
 
-        pview_margin = 0.20 # 학습 초기
-        # pview_margin = 0.15 # 학습 중기
+        # pview_margin = 0.20 # 학습 초기
+        pview_margin = 0.15 # 학습 중기
         # pview_margin = 0.10 # 학습 후기
         out_of_fov_mask = center_offset > pview_margin
 
