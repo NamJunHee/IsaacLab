@@ -55,14 +55,14 @@ class ObjectMoveType(Enum):
     STATIC = "static"
     CIRCLE = "circle"
     LINEAR = "linear"
-object_move = ObjectMoveType.STATIC
-# object_move = ObjectMoveType.LINEAR
+# object_move = ObjectMoveType.STATIC
+object_move = ObjectMoveType.LINEAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
+camera_enable = True
+image_publish = True
 
 robot_action = False
 robot_init_pose = False
@@ -70,12 +70,12 @@ robot_fix = False
 
 init_reward = True
 
-add_episode_length = -300
+add_episode_length = -100
 # add_episode_length = 400
 # add_episode_length = 800
 # add_episode_length = -400
 
-vel_ratio = 0.10 # max 2.61s
+vel_ratio = 0.12 # max 2.61s
 
 # obj_speed = 0.0005
 # obj_speed = 0.001
@@ -194,7 +194,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 max_depenetration_velocity=5.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                enabled_self_collisions=False, solver_position_iteration_count=24, solver_velocity_iteration_count=1
+                enabled_self_collisions=True, solver_position_iteration_count=24, solver_velocity_iteration_count=1
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -203,8 +203,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 "joint2": -1.22,
                 "joint3": -0.50,
                 "joint4":  0.00,
-                # "joint5":  0.30,
-                "joint5":  0.80,
+                "joint5":  0.30,
+                # "joint5":  0.80,
                 "joint6":  0.00,
                 # "left_finger_joint" : 0.0,
                 # "right_finger_joint": 0.0,
@@ -517,13 +517,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # "y" : ( -0.001,  0.001),
             # "z" : (  0.2, 0.5),
                 
-            "x" : (  0.30, 0.70),
+            "x" : (  0.30, 0.80),
             "y" : ( -0.35, 0.35),
-            "z" : (  0.10, 0.60),
+            "z" : (  0.20, 0.70),
             
-            # "x" : ( 0.35,  0.60),
-            # "y" : ( -0.20,  0.20),
-            # "z" : (  0.20, 0.70),
+            # "x" : (  0.50, 0.70),
+            # "y" : ( -0.15, 0.15),
+            # "z" : (  0.20, 0.50),
         }
         
         ## 학습 후기 (넓은 범위)
@@ -555,8 +555,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.UF:
             self.joint_names = [
             "joint1", "joint2", "joint3", "joint4","joint5", "joint6", ]
-            # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.300, 0.000]
-            self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.800, 0.000]
+            self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.300, 0.000]
+            # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.800, 0.000]
         elif robot_type == RobotType.DOOSAN:
             self.joint_names = [
             "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
@@ -1411,8 +1411,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_reward_scale = 10.0
         vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
-        pview_reward_scale = 9.0
-        veloity_align_reward_scale = 2.0
+        pview_reward_scale = 10.0
+        veloity_align_reward_scale = 0.0 # 이거 한번 빼보자
         joint_penalty_scale = 1.0
         
         if not hasattr(self, "init_robot_joint_position"):
@@ -1454,7 +1454,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_reward[within_range] = 1.0 - k * distance_error[within_range]
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
         
-        distance_reward[too_close] = -2.0 * torch.tanh(10.0 * distance_error[too_close])
+        distance_reward[too_close] = -3.0 * torch.tanh(10.0 * distance_error[too_close])
         distance_reward[too_far] = -3.0 * torch.tanh(5.0 * distance_error[too_far])
 
         ## 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터) 그리퍼 위치가 잡기축 위에 있는지 확인
@@ -1468,8 +1468,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if not hasattr(self, "init_grasp_pos"):
             self.init_grasp_pos = franka_grasp_pos.clone().detach()
         # print(f"init_grasp_pos : {self.init_grasp_pos}")
+        
+        # (25.08.13) 로봇 스폰 시 env origin에 대한 상대 위치가 (1.0, 0.0, ...)으로 설정된 것을 기준으로 합니다.
+        robot_base_offset = torch.tensor([1.0, 0.0, 0.0], device=self.device)
+        robot_base_pos_xy = self.scene.env_origins + robot_base_offset
+        
+        grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
+        grasp_axis_origin[:, 0] = robot_base_pos_xy[:, 0]
+        grasp_axis_origin[:, 1] = robot_base_pos_xy[:, 1]
+        grasp_axis_origin[:, 2] = 0.55
             
-        grasp_vec = box_pos_w - self.init_grasp_pos  # [num_envs, 3]
+        # grasp_vec = box_pos_w - self.init_grasp_pos  # [num_envs, 3]
+        grasp_vec = box_pos_w - grasp_axis_origin 
         grasp_axis = grasp_vec / (torch.norm(grasp_vec, dim=-1, keepdim=True) + eps)
         
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
@@ -1620,10 +1630,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # - ee_motion_penalty_weight * ee_motion_penalty
         )
         
-        # print("=====================================")
-        # print("gripper_to_box_dist : ", gripper_to_box_dist)
+        print("=====================================")
+        print("gripper_to_box_dist : ", gripper_to_box_dist)
         # print("distance_reward : ", distance_reward)
         # print("alignment_cos : ", alignment_cos)
+        # print("grasp_axis_origin : ", {grasp_axis_origin})
         # print("vector_alignment_reward:", vector_alignment_reward)
         # # print("position_alignment_reward:", position_alignment_reward)
         # print("center_offset:", center_offset)

@@ -60,11 +60,11 @@ agent:
   time_limit_bootstrap: false
   experiment:
     directory: /home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/logs/skrl/franka_cabinet_direct
-    experiment_name: 2025-08-12_10-21-59_ppo_torch
+    experiment_name: 2025-08-13_20-56-14_ppo_torch
     write_interval: auto
     checkpoint_interval: auto
 trainer:
   class: SequentialTrainer
-  timesteps: 480000
+  timesteps: 320000
   environment_info: log
   close_environment_at_exit: false
