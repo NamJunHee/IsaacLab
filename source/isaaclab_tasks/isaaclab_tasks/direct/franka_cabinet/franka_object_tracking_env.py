@@ -58,12 +58,12 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.STATIC
 # object_move = ObjectMoveType.LINEAR
 
-training_mode = False
+training_mode = True
 
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
+camera_enable = False
+image_publish = False
 
 robot_action = False
 robot_init_pose = False
@@ -71,7 +71,7 @@ robot_fix = False
 
 init_reward = True
 
-add_episode_length = -400
+add_episode_length = 200
 # add_episode_length = 400
 # add_episode_length = 800
 # add_episode_length = -400
@@ -212,8 +212,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # "right_finger_joint": 0.0,
                 
             },
-            pos=(1.0, 0.0, 0.0),
-            rot=(0.0, 0.0, 0.0, 1.0),
+            pos=(0.0, 0.0, 0.0),
+            rot=(1.0, 0.0, 0.0, 0.0),
         ),
         actuators={
             "ufactory_shoulder": ImplicitActuatorCfg(
@@ -460,7 +460,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## mustard
     box = RigidObjectCfg(
         prim_path="/World/envs/env_.*/base_link",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.6, 0, 0.3), rot=(0.923, 0, 0, -0.382)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.3, 0, 0.05), rot=(0.923, 0, 0, -0.382)),
         spawn=UsdFileCfg(
                 # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/003_cracker_box/003_cracker_box.usd",
                 # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/005_tomato_soup_can/005_tomato_soup_can.usd",
@@ -517,7 +517,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.rand_pos_range = {
             # "x" : ( 0.50,  0.50),
             # "y" : ( -0.001,  0.001),
-            # "z" : (  0.2, 0.5),
+            # "z" : (  0.2, 0.2),
                 
             # "x" : (  0.30, 0.80),
             # "y" : ( -0.35, 0.35),
@@ -527,9 +527,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # "y" : ( -0.35, 0.35),
             # "z" : (  0.10, 0.30),
             
-            "x" : (  0.50, 0.70),
+            "x" : (  0.30, 0.60),
             "y" : ( -0.35, 0.35),
-            "z" : (  0.055, 0.10),
+            "z" : (  0.05, 0.30),
         }
         
         ## 학습 후기 (넓은 범위)
@@ -1375,7 +1375,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx]
         box_rot_world = self._box.data.body_link_quat_w[env_ids, self.box_idx]
-        
+                
         (
             self.robot_grasp_rot[env_ids],
             self.robot_grasp_pos[env_ids],
@@ -1412,12 +1412,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # joint_penalty_scale = 0.0
         # ee_motion_penalty_weight = 0.0
         
-        distance_reward_scale = 4.0
+        distance_reward_scale = 9.5
         vector_align_reward_scale = 8.0
-        position_align_reward_scale = 4.0
-        pview_reward_scale = 12.0
+        position_align_reward_scale = 6.0
+        pview_reward_scale = 10.0
         veloity_align_reward_scale = 0.0
-        joint_penalty_scale = 1.0
+        joint_penalty_scale = 2.0
         
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -1474,7 +1474,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print(f"init_grasp_pos : {self.init_grasp_pos}")
         
         # (25.08.13) 로봇 스폰 시 env origin에 대한 상대 위치가 (1.0, 0.0, ...)으로 설정된 것을 기준으로 합니다.
-        robot_base_offset = torch.tensor([1.2, 0.0, 0.0], device=self.device)
+        robot_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
         robot_base_pos_xy = self.scene.env_origins + robot_base_offset
         
         grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
@@ -1525,22 +1525,52 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
-        center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+        # 1. 카메라 앞에 있는지(Z > 0) 먼저 확인하는 마스크 생성
+        is_in_front_mask = box_pos_cam[:, 2] > 0
 
-        # pview_margin = 0.20 # 학습 초기
+        # 2. 기존과 동일하게 XY 평면 거리 계산
+        center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+        
+        pview_margin = 0.20 # 학습 초기
         # pview_margin = 0.15 # 학습 중기
-        pview_margin = 0.10 # 학습 후기
+        # # pview_margin = 0.10 # 학습 후기
+        
         out_of_fov_mask = center_offset > pview_margin
 
-        pview_reward = torch.where(
+        # 3. 시야각 내에 있는지에 대한 보상 후보 값을 먼저 계산
+        pview_reward_candidate = torch.where(
             out_of_fov_mask,
             torch.full_like(center_offset, -3.0),
             torch.where(
                 center_offset <= 0.1,
-                torch.full_like(center_offset,2.0),
+                torch.full_like(center_offset, 2.0),
                 torch.exp(-10.0 * (center_offset - 0.15))
             )
         )
+
+        # 4. 최종적으로, 카메라 앞에 있을 때만 후보 보상을 적용하고, 뒤에 있으면 큰 페널티를 부여
+        pview_reward = torch.where(
+            is_in_front_mask,
+            pview_reward_candidate,
+            torch.full_like(center_offset, -5.0) # 카메라 뒤에 있을 경우 더 큰 페널티
+        )
+        
+        # center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+
+        # # pview_margin = 0.20 # 학습 초기
+        # pview_margin = 0.15 # 학습 중기
+        # # pview_margin = 0.10 # 학습 후기
+        # out_of_fov_mask = center_offset > pview_margin
+
+        # pview_reward = torch.where(
+        #     out_of_fov_mask,
+        #     torch.full_like(center_offset, -3.0),
+        #     torch.where(
+        #         center_offset <= 0.1,
+        #         torch.full_like(center_offset,2.0),
+        #         torch.exp(-10.0 * (center_offset - 0.15))
+        #     )
+        # )
         
         ## 속도 정렬 보상
         if not hasattr(self, "prev_box_pos"):
