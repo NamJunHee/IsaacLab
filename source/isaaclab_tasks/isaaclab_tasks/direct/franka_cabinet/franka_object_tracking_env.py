@@ -1675,6 +1675,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print("pview_reward:", pview_reward)
         # print(f"ee_motion_penalty : {ee_motion_penalty}")
 
+        #2025.08.19
         return rewards
         
     def _compute_grasp_transforms(
