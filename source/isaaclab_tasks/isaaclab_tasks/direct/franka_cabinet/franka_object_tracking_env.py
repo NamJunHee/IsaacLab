@@ -40,6 +40,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from vision_msgs.msg import Detection3DArray
 from geometry_msgs.msg import Point
+import math
 
 from cv_bridge import CvBridge
 import threading
@@ -58,11 +59,11 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.STATIC
 # object_move = ObjectMoveType.LINEAR
 
-training_mode = True
+training_mode = False
 
 foundationpose_mode = False
 
-camera_enable = False
+camera_enable = True
 image_publish = False
 
 robot_action = False
@@ -78,10 +79,30 @@ add_episode_length = 200
 
 vel_ratio = 0.1 # max 2.61s
 
-# obj_speed = 0.0005
-obj_speed = 0.001
+obj_speed = 0.0005
+# obj_speed = 0.001
 # obj_speed = 0.0015
 # obj_speed = 0.002
+
+# 물체 움직임 범위
+rand_pos_range = {
+    # "x" : ( 0.50,  0.50),
+    # "y" : ( -0.001,  0.001),
+    # "z" : (  0.2, 0.2),
+    
+    "x" : (  0.50, 0.50),
+    "y" : ( -0.15, 0.15),
+    "z" : (  0.05, 0.10),
+    
+    # "x" : (  0.45, 0.60),
+    # "y" : ( -0.35, 0.35),
+    # "z" : (  0.05, 0.10),
+}
+
+x_limits = (0.30, 0.50)
+y_limits = (-0.25, 0.25) 
+z_limits = (0.06, 0.06)
+
 
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -200,17 +221,28 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             joint_pos={
-                "joint1":  0.00,
-                "joint2": -1.22,
-                "joint3": -0.50,
-                "joint4":  0.00,
-                "joint5":  1.30,
-                # "joint5":  0.30,
-                # "joint5":  0.80,
-                "joint6":  0.00,
-                # "left_finger_joint" : 0.0,
-                # "right_finger_joint": 0.0,
+                # "joint1":  0.00,
+                # "joint2": -1.22,
+                # "joint3": -0.50,
+                # "joint4":  0.00,
+                # "joint5":  1.30,
+                # # "joint5":  0.30,
+                # # "joint5":  0.80,
+                # "joint6":  0.00,
                 
+                "joint1" : math.radians(  0.0),
+                "joint2" : math.radians(-66.0),
+                "joint3" : math.radians(  8.0),
+                "joint4" : math.radians(  0.0),
+                "joint5" : math.radians( 15.0),
+                "joint6" : math.radians(  0.0),
+                
+                # "joint1" : math.radians(  0.0),
+                # "joint2" : math.radians(-80.0),
+                # "joint3" : math.radians(-12.0),
+                # "joint4" : math.radians(  0.0),
+                # "joint5" : math.radians( 40.0),
+                # "joint6" : math.radians(  0.0),
             },
             pos=(0.0, 0.0, 0.0),
             rot=(1.0, 0.0, 0.0, 0.0),
@@ -353,7 +385,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 width=640,
                 data_types=["rgb", "depth"],
                 spawn=sim_utils.PinholeCameraCfg(
-                    focal_length=10.0, # 값이 클수록 확대
+                    focal_length=20.0, # 값이 클수록 확대
                     focus_distance=60.0,
                     horizontal_aperture=50.0,
                     clipping_range=(0.1, 1.0e5),
@@ -512,44 +544,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def __init__(self, cfg: FrankaObjectTrackingEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        
-        # 학습 초기 (좁은 범위)
-        self.rand_pos_range = {
-            # "x" : ( 0.50,  0.50),
-            # "y" : ( -0.001,  0.001),
-            # "z" : (  0.2, 0.2),
-                
-            # "x" : (  0.30, 0.80),
-            # "y" : ( -0.35, 0.35),
-            # "z" : (  0.20, 0.70),
-            
-            # "x" : (  0.50, 0.70),
-            # "y" : ( -0.35, 0.35),
-            # "z" : (  0.10, 0.30),
-            
-            "x" : (  0.30, 0.60),
-            "y" : ( -0.35, 0.35),
-            "z" : (  0.05, 0.30),
-        }
-        
-        ## 학습 후기 (넓은 범위)
-        # self.rand_pos_range = {
-        #     "x" : ( -0.20,  0.35),
-        #     "y" : ( -0.35,  0.35),
-        #     "z" : (  0.055, 0.3)
-        # }
-        
-        ## Doosan (넓은 범위)
-        if robot_type == RobotType.DOOSAN:
-            self.rand_pos_range = {
-                # "x" : ( -0.10,  -0.10),
-                # "y" : ( -0.001,  0.001),
-                # "z" : (  0.1, 0.1),
-
-                # "x" : ( -0.15,  0.30),
-                # "y" : ( -0.30,  0.30),
-                # "z" : (  0.055, 0.3)
-            }
             
         if robot_type == RobotType.FRANKA:
             self.joint_names = [
@@ -561,9 +555,25 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         elif robot_type == RobotType.UF:
             self.joint_names = [
             "joint1", "joint2", "joint3", "joint4","joint5", "joint6", ]
-            self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 1.300, 0.000]
+            
+            # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 1.300, 0.000]
             # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.300, 0.000]
             # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.800, 0.000]
+            
+            self.joint_init_values = [math.radians(0.0), 
+                                      math.radians(-66.0),
+                                      math.radians(8.0), 
+                                      math.radians(0.0), 
+                                      math.radians(15.0), 
+                                      math.radians(0.0)]
+            
+            # self.joint_init_values = [math.radians(0.0), 
+            #                           math.radians(-80.0),
+            #                           math.radians(-12.0), 
+            #                           math.radians(0.0), 
+            #                           math.radians(40.0), 
+            #                           math.radians(0.0)]
+            
         elif robot_type == RobotType.DOOSAN:
             self.joint_names = [
             "J1_joint", "J2_joint", "J3_joint", "J4_joint","J5_joint", "J6_joint" ]
@@ -730,9 +740,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.current_box_rot = None
         
         self.target_box_pos = torch.stack([
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
             ], dim = 1)
         
         self.target_box_pos = self.target_box_pos + self.scene.env_origins
@@ -846,54 +856,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     def foundationpose_callback(self,msg):
         self.latest_detection_msg = msg
     
-    # def sample_target_box_pos(self):
-    #     self.rand_pos_range_center = {
-    #         "x" : (-0.1, 0.2),
-    #         "y" : (-0.2, 0.2),
-    #         "z" : ( 0.1, 0.2)
-    #     }
-    #     self.rand_pos_range_edge = {
-    #         "x_R" : (-0.3,  -0.1),
-    #         "x_L" : ( 0.25,  0.3),
-    #         "y_R" : (-0.35, -0.2),
-    #         "y_L" : ( 0.2,   0.35),
-    #         "z_R" : ( 0.055, 0.3),
-    #         "z_L" : ( 0.055, 0.1),
-    #         "z_R" : ( 0.2,   0.3)
-    #     }
-    #     self.fixed_z = 0.055
-        
-    #     rand_vals = torch.rand(self.num_envs, device=self.device)
-    #     is_edge = rand_vals < 0.6 # 0.5 
-        
-    #     x_center = torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_center["x"][1] - self.rand_pos_range_center["x"][0]) + self.rand_pos_range_center["x"][0]
-    #     x_edge = torch.where(torch.rand(self.num_envs, device=self.device) > 0.5,  
-    #                      torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["x_R"][1] - self.rand_pos_range_edge["x_R"][0]) + self.rand_pos_range_edge["x_R"][0],  # 왼쪽 가장자리
-    #                      torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["x_L"][1] - self.rand_pos_range_edge["x_L"][0]) + self.rand_pos_range_edge["x_L"][0])  # 오른쪽 가장자리
-        
-    #     y_center = torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_center["y"][1] - self.rand_pos_range_center["y"][0]) + self.rand_pos_range_center["y"][0]
-    #     y_edge = torch.where(torch.rand(self.num_envs, device=self.device) > 0.5,
-    #                          torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["y_R"][1] - self.rand_pos_range_edge["y_R"][0]) + self.rand_pos_range_edge["y_R"][0],  # 아래쪽 가장자리
-    #                          torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["y_L"][1] - self.rand_pos_range_edge["y_L"][0]) + self.rand_pos_range_edge["y_L"][0])  # 위쪽 가장자리
-        
-    #     z_center = torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_center["z"][1] - self.rand_pos_range_center["z"][0]) + self.rand_pos_range_center["z"][0]
-    #     z_edge = torch.where(torch.rand(self.num_envs, device=self.device) > 0.5,
-    #                          torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["z_R"][1] - self.rand_pos_range_edge["z_R"][0]) + self.rand_pos_range_edge["z_R"][0],  # 아래쪽 가장자리
-    #                          torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range_edge["z_L"][1] - self.rand_pos_range_edge["z_L"][0]) + self.rand_pos_range_edge["z_L"][0])  # 위쪽 가장자리
-        
-    #     x_final = torch.where(is_edge, x_edge, x_center)
-    #     y_final = torch.where(is_edge, y_edge, y_center)
-    #     z_final = torch.where(is_edge, z_edge, z_center)
-        
-    #     target_box_pos = torch.stack([x_final, y_final, z_final], dim=1)
-    #     target_box_pos = target_box_pos + self.box_center
-        
-    #     self.rand_pos_step = 0
-    #     self.new_box_pos_rand = self._box.data.body_link_pos_w[:,0,:].clone()
-    #     self.obj_speed = 0.8
-        
-    #     return target_box_pos
-    
     def quat_mul(self, q, r):
         x1, y1, z1, w1 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
         x2, y2, z2, w2 = r[:, 0], r[:, 1], r[:, 2], r[:, 3]
@@ -956,6 +918,42 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         obj_rot_world = self.quat_mul(camera_rot_w, obj_rot_cam)
         
         return obj_pos_world, obj_rot_world
+        
+    def rand_obj_coordinate(self, env_ids: torch.Tensor):
+        num_resets = len(env_ids)
+        if num_resets == 0:
+            return
+
+        # 작업 공간 영역 정의 (단위: 미터)
+        max_reach = 0.762  # 최대 도달 반경 (이미지의 762mm)
+        min_reach = 0.300  # 데드 스페이스 반경 (조정 가능)
+
+        u = torch.rand(num_resets, device=self.device)
+        r = (u * (max_reach**3 - min_reach**3) + min_reach**3) ** (1.0 / 3.0)
+
+        theta = torch.rand(num_resets, device=self.device) * torch.pi - (torch.pi / 2)
+        v = torch.rand(num_resets, device=self.device)
+        phi = torch.acos(v)
+
+        x = r * torch.sin(phi) * torch.cos(theta)
+        y = r * torch.sin(phi) * torch.sin(theta)
+        z = r * torch.cos(phi) 
+        
+        x_clamped = torch.clamp(x, min=x_limits[0], max=x_limits[1])
+        y_clamped = torch.clamp(y, min=y_limits[0], max=y_limits[1])
+        z_clamped = torch.clamp(z, min=z_limits[0], max=z_limits[1])
+
+        local_pos = torch.stack([x_clamped, y_clamped, z_clamped], dim=-1)
+        reset_pos = self.scene.env_origins[env_ids] + local_pos\
+            
+        identity_rot = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(num_resets, 1)
+
+        print("x,y,z:", reset_pos[0])
+        reset_pose = torch.cat([reset_pos, identity_rot], dim=-1)
+        zero_velocity = torch.zeros((num_resets, 6), device=self.device)
+
+        self._box.write_root_pose_to_sim(reset_pose, env_ids=env_ids)
+        self._box.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
         
     def _setup_scene(self):
         
@@ -1033,9 +1031,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
             if torch.any(distance_to_target < 0.01):
                 self.target_box_pos = torch.stack([
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
-                torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
                 ], dim = 1)
 
                 self.target_box_pos = self.target_box_pos + self.scene.env_origins
@@ -1056,6 +1054,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim=-1)
             else:
                 raise ValueError("self.new_box_pos_rand or new_box_rot_rand is None")
+            
             self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
@@ -1195,14 +1194,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # robot state ---------------------------------------------------------------------------------
         if training_mode:
-            # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            #     -0.125,
-            #     0.125,
-            #     (len(env_ids), self._robot.num_joints),
-            #     self.device,
-            # )
+            joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+                -0.125,
+                0.125,
+                (len(env_ids), self._robot.num_joints),
+                self.device,
+            )
             
-            joint_pos = torch.zeros((len(env_ids), self._robot.num_joints), device=self.device)
+            # joint_pos = torch.zeros((len(env_ids), self._robot.num_joints), device=self.device)
             
             for i, name in enumerate(self.joint_names):
                 joint_idx = self._robot.find_joints([name])[0]
@@ -1219,12 +1218,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._initialized = False
 
             if not self._initialized:
-                joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-                -0.125,
-                0.125,
-                (len(env_ids), self._robot.num_joints),
-                self.device,
-                )
+                joint_pos = self._robot.data.default_joint_pos[env_ids] 
+                
+                # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+                # -0.125,
+                # 0.125,
+                # (len(env_ids), self._robot.num_joints),
+                # self.device,
+                # )
+                
                 joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
                 joint_vel = torch.zeros_like(joint_pos)
                 self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
@@ -1241,9 +1243,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # 물체 위치 랜덤 생성 (Static) (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
         self.rand_pos = torch.stack([
-            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["x"][1] - self.rand_pos_range["x"][0]) + self.rand_pos_range["x"][0],
-            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["y"][1] - self.rand_pos_range["y"][0]) + self.rand_pos_range["y"][0],
-            torch.rand(self.num_envs, device=self.device) * (self.rand_pos_range["z"][1] - self.rand_pos_range["z"][0]) + self.rand_pos_range["z"][0],
+            torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
+            torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
+            torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
         ], dim = 1)
         
         rand_reset_pos = self.rand_pos + self.scene.env_origins
@@ -1260,8 +1262,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
 
         if object_move == ObjectMoveType.STATIC:
-            self._box.write_root_pose_to_sim(rand_reset_box_pose)
-            self._box.write_root_velocity_to_sim(zero_root_velocity)
+            self.rand_obj_coordinate(env_ids)
+            # self._box.write_root_pose_to_sim(rand_reset_box_pose)
+            # self._box.write_root_velocity_to_sim(zero_root_velocity)
         
         # 물체 위치 선형 랜덤 이동 (Linear) ---------------------------------------------------------------
         if object_move == ObjectMoveType.LINEAR:
@@ -1412,12 +1415,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # joint_penalty_scale = 0.0
         # ee_motion_penalty_weight = 0.0
         
-        distance_reward_scale = 9.5
+        distance_reward_scale = 8.0
         vector_align_reward_scale = 8.0
         position_align_reward_scale = 6.0
         pview_reward_scale = 10.0
         veloity_align_reward_scale = 0.0
-        joint_penalty_scale = 2.0
+        joint_penalty_scale = 0.0
+        
+        # vector_align_margin = 0.85
+        vector_align_margin = 0.90
+        # vector_align_margin = 0.95
+        
+        position_align_margin = 0.1
+        # position_align_margin = 0.05
+        
+        pview_margin = 0.20 # 학습 초기
+        # pview_margin = 0.15 # 학습 중기
+        # # pview_margin = 0.10 # 학습 후기
         
         if not hasattr(self, "init_robot_joint_position"):
             self.init_robot_joint_position = self._robot.data.joint_pos.clone()
@@ -1474,7 +1488,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print(f"init_grasp_pos : {self.init_grasp_pos}")
         
         # (25.08.13) 로봇 스폰 시 env origin에 대한 상대 위치가 (1.0, 0.0, ...)으로 설정된 것을 기준으로 합니다.
-        robot_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        robot_base_offset = torch.tensor([0.05, 0.0, 0.0], device=self.device)
         robot_base_pos_xy = self.scene.env_origins + robot_base_offset
         
         grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
@@ -1493,10 +1507,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if robot_type == RobotType.DOOSAN:
             alignment_cos =  alignment_cos + 0.22 ##doosan
         
-        # vector_align_margin = 0.85
-        vector_align_margin = 0.90
-        # vector_align_margin = 0.95
-        
         vector_alignment_reward = torch.where(
             alignment_cos >= vector_align_margin,
             # 1, # 학습 초기 상수 보상
@@ -1507,10 +1517,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         ## position_alignment_reward (그리퍼가 물체의 잡기축에 수직으로 위치하는지 확인)
         gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - box_pos_w, grasp_axis, dim=-1),dim=-1)        
 
-        # position_align_margin = 0.1
-        position_align_margin = 0.05
-        
-        max_proj_dist = 0.15 
         start_reward = 0.0        
         slope = -10.0
 
@@ -1525,19 +1531,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
-        # 1. 카메라 앞에 있는지(Z > 0) 먼저 확인하는 마스크 생성
         is_in_front_mask = box_pos_cam[:, 2] > 0
-
-        # 2. 기존과 동일하게 XY 평면 거리 계산
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
-        
-        pview_margin = 0.20 # 학습 초기
-        # pview_margin = 0.15 # 학습 중기
-        # # pview_margin = 0.10 # 학습 후기
-        
         out_of_fov_mask = center_offset > pview_margin
 
-        # 3. 시야각 내에 있는지에 대한 보상 후보 값을 먼저 계산
         pview_reward_candidate = torch.where(
             out_of_fov_mask,
             torch.full_like(center_offset, -3.0),
@@ -1548,29 +1545,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             )
         )
 
-        # 4. 최종적으로, 카메라 앞에 있을 때만 후보 보상을 적용하고, 뒤에 있으면 큰 페널티를 부여
         pview_reward = torch.where(
             is_in_front_mask,
             pview_reward_candidate,
             torch.full_like(center_offset, -5.0) # 카메라 뒤에 있을 경우 더 큰 페널티
         )
-        
-        # center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
-
-        # # pview_margin = 0.20 # 학습 초기
-        # pview_margin = 0.15 # 학습 중기
-        # # pview_margin = 0.10 # 학습 후기
-        # out_of_fov_mask = center_offset > pview_margin
-
-        # pview_reward = torch.where(
-        #     out_of_fov_mask,
-        #     torch.full_like(center_offset, -3.0),
-        #     torch.where(
-        #         center_offset <= 0.1,
-        #         torch.full_like(center_offset,2.0),
-        #         torch.exp(-10.0 * (center_offset - 0.15))
-        #     )
-        # )
         
         ## 속도 정렬 보상
         if not hasattr(self, "prev_box_pos"):
