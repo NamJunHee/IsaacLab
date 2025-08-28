@@ -59,11 +59,11 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.STATIC
 # object_move = ObjectMoveType.LINEAR
 
-training_mode = False
+training_mode = True
 
 foundationpose_mode = False
 
-camera_enable = True
+camera_enable = False
 image_publish = False
 
 robot_action = False
@@ -75,7 +75,7 @@ init_reward = True
 add_episode_length = 200
 # add_episode_length = 400
 # add_episode_length = 800
-# add_episode_length = -400
+# add_episode_length = -200
 
 vel_ratio = 0.1 # max 2.61s
 
@@ -90,18 +90,18 @@ rand_pos_range = {
     # "y" : ( -0.001,  0.001),
     # "z" : (  0.2, 0.2),
     
-    "x" : (  0.50, 0.50),
+    "x" : (  0.30, 0.45),
     "y" : ( -0.15, 0.15),
-    "z" : (  0.05, 0.10),
+    "z" : (  0.07, 0.10),
     
-    # "x" : (  0.45, 0.60),
-    # "y" : ( -0.35, 0.35),
-    # "z" : (  0.05, 0.10),
+    # "x" : (  0.30, 0.50),
+    # "y" : ( -0.20, 0.20),
+    # "z" : (  0.07, 0.15),
 }
 
 x_limits = (0.30, 0.50)
-y_limits = (-0.25, 0.25) 
-z_limits = (0.06, 0.06)
+y_limits = (-0.10, 0.10) 
+z_limits = (0.06, 0.10)
 
 
 @configclass
@@ -231,17 +231,17 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # "joint6":  0.00,
                 
                 "joint1" : math.radians(  0.0),
-                "joint2" : math.radians(-66.0),
+                "joint2" : math.radians(-100.0),
                 "joint3" : math.radians(  8.0),
                 "joint4" : math.radians(  0.0),
-                "joint5" : math.radians( 15.0),
+                "joint5" : math.radians( 70.0),
                 "joint6" : math.radians(  0.0),
                 
                 # "joint1" : math.radians(  0.0),
                 # "joint2" : math.radians(-80.0),
                 # "joint3" : math.radians(-12.0),
                 # "joint4" : math.radians(  0.0),
-                # "joint5" : math.radians( 40.0),
+                # "joint5" : math.radians( 60.0),
                 # "joint6" : math.radians(  0.0),
             },
             pos=(0.0, 0.0, 0.0),
@@ -385,7 +385,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 width=640,
                 data_types=["rgb", "depth"],
                 spawn=sim_utils.PinholeCameraCfg(
-                    focal_length=20.0, # 값이 클수록 확대
+                    focal_length=15.0, # 값이 클수록 확대
                     focus_distance=60.0,
                     horizontal_aperture=50.0,
                     clipping_range=(0.1, 1.0e5),
@@ -561,17 +561,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # self.joint_init_values = [0.000, -1.220, -0.50, -0.000, 0.800, 0.000]
             
             self.joint_init_values = [math.radians(0.0), 
-                                      math.radians(-66.0),
-                                      math.radians(8.0), 
+                                      math.radians(-100.0),
                                       math.radians(0.0), 
-                                      math.radians(15.0), 
+                                      math.radians(0.0), 
+                                      math.radians(70.0), 
                                       math.radians(0.0)]
             
             # self.joint_init_values = [math.radians(0.0), 
             #                           math.radians(-80.0),
             #                           math.radians(-12.0), 
             #                           math.radians(0.0), 
-            #                           math.radians(40.0), 
+            #                           math.radians(60.0), 
             #                           math.radians(0.0)]
             
         elif robot_type == RobotType.DOOSAN:
@@ -948,7 +948,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
         identity_rot = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(num_resets, 1)
 
-        print("x,y,z:", reset_pos[0])
+        # print("x,y,z:", reset_pos[0])
         reset_pose = torch.cat([reset_pos, identity_rot], dim=-1)
         zero_velocity = torch.zeros((num_resets, 6), device=self.device)
 
@@ -1144,13 +1144,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
                 
-        if training_mode or object_move == ObjectMoveType.CIRCLE:
-
+        if training_mode or object_move == ObjectMoveType.CIRCLE :
             terminated = 0
             truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
         else:
             terminated = 0
-            truncated = self.episode_length_buf >= self.max_episode_length #- 400 # 물체 램덤 생성 환경 초기화 주기
+            truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length #- 400 # 물체 램덤 생성 환경 초기화 주기
         
         #환경 고정
         # terminated = 0
@@ -1262,9 +1261,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
 
         if object_move == ObjectMoveType.STATIC:
-            self.rand_obj_coordinate(env_ids)
-            # self._box.write_root_pose_to_sim(rand_reset_box_pose)
-            # self._box.write_root_velocity_to_sim(zero_root_velocity)
+            # self.rand_obj_coordinate(env_ids)
+            self._box.write_root_pose_to_sim(rand_reset_box_pose)
+            self._box.write_root_velocity_to_sim(zero_root_velocity)
         
         # 물체 위치 선형 랜덤 이동 (Linear) ---------------------------------------------------------------
         if object_move == ObjectMoveType.LINEAR:
@@ -1415,18 +1414,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # joint_penalty_scale = 0.0
         # ee_motion_penalty_weight = 0.0
         
-        distance_reward_scale = 8.0
-        vector_align_reward_scale = 8.0
-        position_align_reward_scale = 6.0
-        pview_reward_scale = 10.0
+        distance_reward_scale = 7.0
+        vector_align_reward_scale = 9.0
+        position_align_reward_scale = 10.0
+        pview_reward_scale = 8.0
         veloity_align_reward_scale = 0.0
-        joint_penalty_scale = 0.0
+        joint_penalty_scale = 2.0
         
-        # vector_align_margin = 0.85
-        vector_align_margin = 0.90
+        vector_align_margin = 0.85
+        # vector_align_margin = 0.90
         # vector_align_margin = 0.95
         
-        position_align_margin = 0.1
+        position_align_margin = 0.15
+        # position_align_margin = 0.10
         # position_align_margin = 0.05
         
         pview_margin = 0.20 # 학습 초기
@@ -1459,7 +1459,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         within_range = (gripper_to_box_dist >= min_dist) & (gripper_to_box_dist <= max_dist)
         too_close = gripper_to_box_dist < min_dist
         too_far = gripper_to_box_dist > max_dist
-        # too_close_or_far = ~within_range
         
         distance_reward = torch.zeros_like(gripper_to_box_dist)
        
@@ -1468,27 +1467,29 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
 
         #학습 후기 선형 보상
-        k = 2.0  # 보상 기울기 
-        distance_reward[within_range] = 1.0 - k * distance_error[within_range]
-        # distance_reward[too_close_or_far] = -1.0 * torch.tanh(5.0 * distance_error[too_close_or_far])
+        # k = 2.0  # 보상 기울기 
+        # distance_reward[within_range] = 1.0 - k * distance_error[within_range]
         
-        distance_reward[too_close] = -3.0 * torch.tanh(10.0 * distance_error[too_close])
-        distance_reward[too_far] = -3.0 * torch.tanh(5.0 * distance_error[too_far])
+        # max_allowable_error = max_dist - target_distance
+        # scaled_positive_reward = 1.0 - (distance_error[within_range] / (max_allowable_error + eps))
+        
+        # distance_reward[within_range] = scaled_positive_reward
+        # distance_reward[too_close] = -1.0 * torch.tanh(3.0 * distance_error[too_close])
+        # distance_reward[too_far] = -1.0 * torch.tanh(5.0 * distance_error[too_far])
+        
+        alpha = 20.0  # 이 값을 10.0 ~ 50.0 사이에서 조정해보세요.
+        distance_reward = torch.exp(-alpha * distance_error.pow(2))
+
+        min_dist_penalty_mask = gripper_to_box_dist < min_dist
+        gentle_penalty = -torch.tanh(2.0 * (min_dist - gripper_to_box_dist[min_dist_penalty_mask]))
+        distance_reward[min_dist_penalty_mask] = gentle_penalty
 
         ## 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터) 그리퍼 위치가 잡기축 위에 있는지 확인
-        # robot_origin = self.scene.env_origins + torch.tensor([1.0, 0.0, 0.0], device=self.scene.env_origins.device)
-        # xy_vec = box_pos_w[:, :2]  - robot_origin[:, :2]
-        # xy_dir = xy_vec / (torch.norm(xy_vec, dim=-1, keepdim=True) + eps)  
-        # xy_scaled = xy_dir * (2**0.5 / 2)                                   
-        # z_component = torch.full_like(xy_scaled[:, :1], -(2**0.5 / 2))
-        # grasp_axis = torch.cat([xy_scaled, z_component], dim=-1)
-        
         if not hasattr(self, "init_grasp_pos"):
             self.init_grasp_pos = franka_grasp_pos.clone().detach()
-        # print(f"init_grasp_pos : {self.init_grasp_pos}")
         
         # (25.08.13) 로봇 스폰 시 env origin에 대한 상대 위치가 (1.0, 0.0, ...)으로 설정된 것을 기준으로 합니다.
-        robot_base_offset = torch.tensor([0.05, 0.0, 0.0], device=self.device)
+        robot_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
         robot_base_pos_xy = self.scene.env_origins + robot_base_offset
         
         grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
@@ -1501,16 +1502,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         grasp_axis = grasp_vec / (torch.norm(grasp_vec, dim=-1, keepdim=True) + eps)
         
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
-        
         alignment_cos = torch.sum(gripper_forward * grasp_axis, dim=-1).clamp(-1.0, 1.0)
 
-        if robot_type == RobotType.DOOSAN:
-            alignment_cos =  alignment_cos + 0.22 ##doosan
+        # vector_alignment_reward = torch.where(
+        #     alignment_cos >= vector_align_margin,
+        #     # 1, # 학습 초기 상수 보상
+        #     alignment_cos, # 학습 후기 선형 보상
+        #     -1.0 * (1.0 - alignment_cos)
+        # )
         
+        positive_reward = (alignment_cos - vector_align_margin) / (1.0 - vector_align_margin + eps)
         vector_alignment_reward = torch.where(
             alignment_cos >= vector_align_margin,
-            # 1, # 학습 초기 상수 보상
-            alignment_cos, # 학습 후기 선형 보상
+            positive_reward,
             -1.0 * (1.0 - alignment_cos)
         )
         
@@ -1518,10 +1522,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - box_pos_w, grasp_axis, dim=-1),dim=-1)        
 
         start_reward = 0.0        
-        slope = -10.0
+        slope = -5.0
 
         position_alignment_reward = slope * (gripper_proj_dist - position_align_margin) + start_reward
-        position_alignment_reward = torch.clamp(position_alignment_reward, min=-3.0)
+        position_alignment_reward = torch.clamp(position_alignment_reward, min=-2.0)
         
         positive_mask = position_alignment_reward > 0.0
         position_alignment_reward = torch.where(
@@ -1530,25 +1534,52 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             position_alignment_reward
         )
         
+        # start_reward = 0.0        
+        # slope = -5.0
+        # eps = 1e-6 # 0으로 나누는 것을 방지
+
+        # linear_penalty = slope * (gripper_proj_dist - position_align_margin) + start_reward
+        # positive_mask = gripper_proj_dist < position_align_margin
+
+        # scaled_positive_reward = 1.0 - (gripper_proj_dist / (position_align_margin + eps))
+
+        # position_alignment_reward = torch.where(
+        #     positive_mask,
+        #     scaled_positive_reward,
+        #     linear_penalty
+        # )
+        # position_alignment_reward = torch.clamp(position_alignment_reward, min=-2.0)
+        
         ## 카메라 veiw 중심으로부터 거리 (XY 평면 기준) 시야 이탈 판단
         is_in_front_mask = box_pos_cam[:, 2] > 0
         center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
         out_of_fov_mask = center_offset > pview_margin
 
+        # pview_reward_candidate = torch.where(
+        #     out_of_fov_mask,
+        #     torch.full_like(center_offset, -3.0),
+        #     torch.where(
+        #         center_offset <= 0.1,
+        #         torch.full_like(center_offset, 2.0),
+        #         torch.exp(-10.0 * (center_offset - 0.15))
+        #     )
+        # )
+        
+        positive_pview_reward = 1.0 - (center_offset / (pview_margin + eps))
+
+        k_penalty = 3.0  
+        linear_penalty = -k_penalty * (center_offset - pview_margin)
+
         pview_reward_candidate = torch.where(
             out_of_fov_mask,
-            torch.full_like(center_offset, -3.0),
-            torch.where(
-                center_offset <= 0.1,
-                torch.full_like(center_offset, 2.0),
-                torch.exp(-10.0 * (center_offset - 0.15))
-            )
+            linear_penalty,
+            positive_pview_reward   
         )
 
         pview_reward = torch.where(
             is_in_front_mask,
             pview_reward_candidate,
-            torch.full_like(center_offset, -5.0) # 카메라 뒤에 있을 경우 더 큰 페널티
+            torch.full_like(center_offset, -5.0)
         )
         
         ## 속도 정렬 보상
@@ -1646,13 +1677,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print("=====================================")
         # print("gripper_to_box_dist : ", gripper_to_box_dist)
         # print("distance_reward : ", distance_reward)
-        # print("alignment_cos : ", alignment_cos)
-        # print("grasp_axis_origin : ", {grasp_axis_origin})
+        # # # # print("alignment_cos : ", alignment_cos)
+        # # # # print("grasp_axis_origin : ", {grasp_axis_origin})
         # print("vector_alignment_reward:", vector_alignment_reward)
-        # # print("position_alignment_reward:", position_alignment_reward)
-        # print("center_offset:", center_offset)
+        # print("position_alignment_reward:", position_alignment_reward)
+        # # # # print("center_offset:", center_offset)
         # print("pview_reward:", pview_reward)
-        # print(f"ee_motion_penalty : {ee_motion_penalty}")
+        # # # # print(f"ee_motion_penalty : {ee_motion_penalty}")
 
         #2025.08.19
         return rewards
