@@ -1739,13 +1739,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 vector_align_margin[level_mask] = margins["vector_align"]
                 position_align_margin[level_mask] = margins["position_align"]
                 pview_margin[level_mask] = margins["pview"]
+                
         else:
-            distance_reward_scale = 7.0
-            vector_align_reward_scale = 9.0
-            position_align_reward_scale = 10.0
-            pview_reward_scale = 7.5
+            distance_reward_scale = 10.0
+            vector_align_reward_scale = 6.0
+            position_align_reward_scale = 7.0
+            pview_reward_scale = 8.0
             velocity_align_reward_scale = 0.0
-            joint_penalty_scale = 1.0
+            joint_penalty_scale = 2.0
 
             # vector_align_margin = 0.85
             vector_align_margin = 0.90
@@ -1802,26 +1803,26 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_reward[too_far] = -3.0 * torch.tanh(4.0 * distance_error[too_far])
 
         ## 잡기축 정의 (그리퍼 초기 위치 → 물체 위치 벡터) 그리퍼 위치가 잡기축 위에 있는지 확인
-        # robot_origin = self.scene.env_origins + torch.tensor([1.0, 0.0, 0.0], device=self.scene.env_origins.device)
-        # xy_vec = box_pos_w[:, :2]  - robot_origin[:, :2]
-        # xy_dir = xy_vec / (torch.norm(xy_vec, dim=-1, keepdim=True) + eps)  
-        # xy_scaled = xy_dir * (2**0.5 / 2)                                   
-        # z_component = torch.full_like(xy_scaled[:, :1], -(2**0.5 / 2))
-        # grasp_axis = torch.cat([xy_scaled, z_component], dim=-1)
+        robot_origin = self.scene.env_origins + torch.tensor([1.0, 0.0, 0.0], device=self.scene.env_origins.device)
+        xy_vec = box_pos_w[:, :2]  - robot_origin[:, :2]
+        xy_dir = xy_vec / (torch.norm(xy_vec, dim=-1, keepdim=True) + eps)  
+        xy_scaled = xy_dir * (2**0.5 / 2)                                   
+        z_component = torch.full_like(xy_scaled[:, :1], -(2**0.5 / 2))
+        grasp_axis = torch.cat([xy_scaled, z_component], dim=-1)
         
-        if not hasattr(self, "init_grasp_pos"):
-            self.init_grasp_pos = franka_grasp_pos.clone().detach()
+        # if not hasattr(self, "init_grasp_pos"):
+        #     self.init_grasp_pos = franka_grasp_pos.clone().detach()
         
-        robot_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-        robot_base_pos_xy = self.scene.env_origins + robot_base_offset
+        # robot_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        # robot_base_pos_xy = self.scene.env_origins + robot_base_offset
         
-        grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
-        grasp_axis_origin[:, 0] = robot_base_pos_xy[:, 0]
-        grasp_axis_origin[:, 1] = robot_base_pos_xy[:, 1]
-        grasp_axis_origin[:, 2] = 0.55
+        # grasp_axis_origin = torch.zeros_like(self.init_grasp_pos)
+        # grasp_axis_origin[:, 0] = robot_base_pos_xy[:, 0]
+        # grasp_axis_origin[:, 1] = robot_base_pos_xy[:, 1]
+        # grasp_axis_origin[:, 2] = 0.55
             
-        grasp_vec = box_pos_w - grasp_axis_origin 
-        grasp_axis = grasp_vec / (torch.norm(grasp_vec, dim=-1, keepdim=True) + eps)
+        # grasp_vec = box_pos_w - grasp_axis_origin 
+        # grasp_axis = grasp_vec / (torch.norm(grasp_vec, dim=-1, keepdim=True) + eps)
         
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
         alignment_cos = torch.sum(gripper_forward * grasp_axis, dim=-1).clamp(-1.0, 1.0)
@@ -1922,6 +1923,59 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         weighted_joint_deviation = joint_deviation * joint_weights
         joint_penalty = torch.sum(weighted_joint_deviation, dim=-1)
         joint_penalty = torch.tanh(joint_penalty)
+        
+        # eps = 1e-6
+        
+        # # -- [1] 거리 보상: 가우시안 함수 (목표 거리에서 최대 보상) --
+        # target_distance = 0.30
+        # gripper_to_box_dist = torch.norm(franka_grasp_pos - box_pos_w, p=2, dim=-1)
+        # distance_error = torch.abs(gripper_to_box_dist - target_distance)
+        
+        # distance_alpha = 25.0 # 이 값이 클수록 목표 거리에서 조금만 벗어나도 보상이 급격히 감소
+        # distance_reward = torch.exp(-distance_alpha * distance_error.pow(2))
+        
+        # # -- [2] 방향 정렬 보상: 각도 오차 기반의 가우시안 함수 --
+        # # 두 벡터 사이의 각도 오차가 0일 때 1.0의 보상을, 각도가 벌어질수록 0으로 감쇠합니다.
+        # gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
+        # grasp_vec = box_pos_w - franka_grasp_pos # 그리퍼에서 물체를 바라보는 벡터
+        # grasp_axis = grasp_vec / (torch.norm(grasp_vec, dim=-1, keepdim=True) + eps)
+        
+        # alignment_cos = torch.sum(gripper_forward * grasp_axis, dim=-1).clamp(-1.0, 1.0)
+        # # acos를 사용하여 두 벡터 사이의 실제 각도(라디안)를 계산
+        # angle_error = torch.acos(alignment_cos) 
+
+        # vector_alpha = 5.0 # 이 값이 클수록 정렬에 더 엄격해짐
+        # vector_alignment_reward = torch.exp(-vector_alpha * angle_error.pow(2))
+        
+        # # -- [3] 경로 정렬 보상: 경로 이탈 거리에 대한 가우시안 함수 --
+        # # 이상적인 경로(선)와의 거리가 0일 때 1.0의 보상을, 거리가 멀어질수록 0으로 감쇠합니다.
+        # robot_base_pos_xy = self.scene.env_origins
+        # grasp_axis_origin = torch.zeros_like(franka_grasp_pos)
+        # grasp_axis_origin[:, 0] = robot_base_pos_xy[:, 0]
+        # grasp_axis_origin[:, 1] = robot_base_pos_xy[:, 1]
+        # grasp_axis_origin[:, 2] = 0.45
+        
+        # path_vec = box_pos_w - grasp_axis_origin 
+        # path_axis = path_vec / (torch.norm(path_vec, dim=-1, keepdim=True) + eps)
+        # gripper_proj_dist = torch.norm(torch.cross(franka_grasp_pos - box_pos_w, path_axis, dim=-1),dim=-1)
+        
+        # position_alpha = 20.0 # 이 값이 클수록 경로 이탈에 민감해짐
+        # position_alignment_reward = torch.exp(-position_alpha * gripper_proj_dist.pow(2))
+        
+        #  # -- [4] 시야 유지 보상: 카메라 중심 이탈 거리에 대한 가우시안 함수 --
+        # # 물체가 시야 중심에 있을 때 1.0의 보상을, 중심에서 멀어질수록 0으로 감쇠합니다.
+        # is_in_front_mask = box_pos_cam[:, 2] > 0
+        # center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+        
+        # pview_alpha = 15.0 # 이 값이 클수록 중심 유지를 더 강하게 유도
+        # pview_reward_candidate = torch.exp(-pview_alpha * center_offset.pow(2))
+        
+        # # 단, 카메라 뒤로 가는 치명적인 실패는 명시적인 페널티를 유지하는 것이 안정적입니다.
+        # pview_reward = torch.where(
+        #     is_in_front_mask,
+        #     pview_reward_candidate,
+        #     torch.full_like(center_offset, -1.0) # 작은 고정 페널티
+        # ) 
         
         ## 최종 보상 계산
         rewards = (
