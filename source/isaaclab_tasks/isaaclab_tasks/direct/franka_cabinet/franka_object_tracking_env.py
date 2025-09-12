@@ -46,6 +46,11 @@ from cv_bridge import CvBridge
 import threading
 import time
 
+import matplotlib.pyplot as plt
+import numpy as np
+import csv
+import os
+
 class RobotType(Enum):
     FRANKA = "franka"
     UF = "ufactory"
@@ -73,31 +78,43 @@ robot_init_pose = False
 robot_fix = False
 
 init_reward = True
+test_graph_mode = True
 
-add_episode_length = 200
-# add_episode_length = 400
+# add_episode_length = 300
+add_episode_length = 400
 # add_episode_length = 800
 # add_episode_length = -930
 
-vel_ratio = 0.10 # max 2.61s
+vel_ratio = 0.12 # max 2.61s
 
 # obj_speed = 0.0005
 obj_speed = 0.001
 # obj_speed = 0.0015
 # obj_speed = 0.002
 
-# 물체 움직임 범위
 rand_pos_range = {
     # "x" : (  0.35, 0.80),
     # "y" : ( -0.3, 0.3),
     # "z" : (  0.05, 0.75),
     
-    "x" : (  0.35, 0.40),
+    "x" : (  0.35, 0.45),
     "y" : ( -0.3, 0.3),
-    "z" : (  0.05, 0.05),
+    "z" : (  0.05, 0.10),
+    
+    # "x" : (  0.35, 0.50),
+    # "y" : ( -0.3, 0.3),
+    # "z" : (  0.05, 0.1),
+    
+    # "x" : (  0.6, 0.6),
+    # "y" : ( -0.3, 0.3),
+    # "z" : (  0.65, 0.65),
+    
+    # "x" : (  0.4, 0.6),
+    # "y" : ( -0.0, 0.0),
+    # "z" : (  0.45, 0.45),
 }
-x_weights = {"far": 1.0, "middle": 1.0, "close" : 6.0}
-z_weights = {"top": 1.0, "middle": 1.0, "bottom": 6.0}
+x_weights = {"far": 2.0, "middle": 1.0, "close" : 7.0}
+z_weights = {"top": 2.0, "middle": 1.0, "bottom": 7.0}
             
 reward_curriculum_levels = [
     {
@@ -111,7 +128,7 @@ reward_curriculum_levels = [
         "reward_scales": {"distance": 8.0, "vector_align": 8.0, "position_align": 8.0, "pview": 12.0, "joint_penalty": 1.0},
         "success_threshold": 10.0, "failure_threshold": 0.0,
         "y_range": (-0.3, 0.3),  # << Level 1의 y범위 추가
-        "pview_margin" : 0.10
+        "pview_margin" : 0.15
     },
     {
         "reward_scales": {"distance": 8.0, "vector_align": 8.0, "position_align": 8.0, "pview": 12.0, "joint_penalty": 1.5},
@@ -122,8 +139,8 @@ reward_curriculum_levels = [
 ]
 
 # vector_align_margin = math.radians(15.0)
-vector_align_margin = math.radians(10.0)
-# vector_align_margin = math.radians(5.0)
+# vector_align_margin = math.radians(10.0)
+vector_align_margin = math.radians(5.0)
 
 position_align_margin = 0.05
 # position_align_margin = 0.03
@@ -249,7 +266,7 @@ workspace_zones = {
     "z": {"top": 0.7,"middle": 0.50, "bottom": 0.1}
 }
 
-
+CSV_FILEPATH = "/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/tracking_data.csv"
 
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
@@ -663,19 +680,34 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     current_time = 0.0
 
 class FrankaObjectTrackingEnv(DirectRLEnv):
-    # pre-physics step calls
-    #   |-- _pre_physics_step(action)
-    #   |-- _apply_action()
-    # post-physics step calls
-    #   |-- _get_dones()
-    #   |-- _get_rewards()
-    #   |-- _reset_idx(env_ids)
-    #   |-- _get_observations()
 
     cfg: FrankaObjectTrackingEnvCfg
 
     def __init__(self, cfg: FrankaObjectTrackingEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        
+        if not training_mode and test_graph_mode:
+            
+            if os.path.exists(CSV_FILEPATH):
+                os.remove(CSV_FILEPATH)
+                print(f"'{CSV_FILEPATH}' 파일을 삭제하고 새로 시작합니다.")
+            
+            self.csv_filepath = "tracking_data.csv"
+            # 파일 초기화
+            with open(self.csv_filepath, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['gripper_x', 'gripper_y', 'gripper_z', 
+                                 'object_x', 'object_y', 'object_z',
+                                 'cam_x', 'cam_y'])
+        
+        self.target_angle_matrix = torch.tensor([
+            [-40.0, -30.0, -20.0],  # z < 0.5 (bottom) 일 때의 x 구간별 각도
+            [  0.0,   0.0,   0.0],  # 0.5 <= z < 0.7 (middle) 일 때의 x 구간별 각도
+            [ 40.0,  30.0,  20.0]   # z >= 0.7 (top) 일 때의 x 구간별 각도
+        ], device=self.device)
+        
+        self.boundaries_x = torch.tensor([workspace_zones["x"]["middle"], workspace_zones["x"]["far"]], device=self.device)
+        self.boundaries_z = torch.tensor([workspace_zones["z"]["middle"], workspace_zones["z"]["top"]], device=self.device)
         
         self.log_counter = 0
         self.LOG_INTERVAL = 2  # 1번의 리셋 묶음마다 한 번씩 로그 출력
@@ -1159,8 +1191,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         camera_pos_w = hand_pos + cam_offset_pos_world
         camera_pos_w = camera_pos_w - self.scene.env_origins
         
-        # camera_rot_w = self.quat_mul(hand_rot, q_cam_in_hand)
-        camera_rot_w = self.robot_grasp_rot
+        camera_rot_w = self.quat_mul(hand_rot, q_cam_in_hand)
+        # camera_rot_w = self.robot_grasp_rot
         
         # if robot_type == RobotType.DOOSAN:
         #     camera_rot_w = self.quat_mul(self.robot_grasp_rot, q_cam_in_hand)
@@ -1282,6 +1314,79 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         return torch.stack([final_x_pos, final_y_pos, final_z_pos], dim=1)
     
+    def _initialize_realtime_plots(self):
+        """실시간 그래프를 위한 Figure와 Axes를 초기화합니다."""
+        from matplotlib.patches import Circle
+        
+        plt.ion()  # 대화형 모드 켜기
+        
+        # Figure 1: 3D Trajectory
+        self.fig1 = plt.figure(figsize=(8, 7))
+        self.ax1 = self.fig1.add_subplot(111, projection='3d')
+        self.traj_obj_line, = self.ax1.plot([], [], [], label='Object Trajectory', color='blue')
+        self.traj_grip_line, = self.ax1.plot([], [], [], label='Gripper Trajectory', color='red', linestyle='--')
+        self.ax1.set_title('Real-time 3D Trajectory')
+        self.ax1.set_xlabel('X'); self.ax1.set_ylabel('Y'); self.ax1.set_zlabel('Z')
+        self.ax1.legend()
+        self.ax1.grid(True)
+        
+        # Figure 2: Camera View
+        self.fig2, self.ax2 = plt.subplots(figsize=(7, 7))
+        self.cam_scatter = self.ax2.scatter([], [], label='Object in Camera View')
+        self.ax2.axhline(0, color='black', linestyle='--', linewidth=1)
+        self.ax2.axvline(0, color='black', linestyle='--', linewidth=1)
+        self.ax2.set_title('Real-time Object Position in Camera Frame')
+        self.ax2.set_xlabel('X'); self.ax2.set_ylabel('Y')
+        self.ax2.set_aspect('equal', adjustable='box')
+        self.ax2.grid(True)
+
+        # pview_margin 원 추가 (초기 레벨 기준)
+        pview_margin = reward_curriculum_levels[0]["pview_margin"]
+        self.margin_circle = Circle((0, 0), pview_margin, color='red', fill=False, linestyle='-.', label=f'pview_margin')
+        self.ax2.add_artist(self.margin_circle)
+        self.ax2.legend()
+        
+        plt.show(block=False) # 창을 띄우되, 코드 실행을 막지 않음
+        
+    def _update_realtime_plots(self):
+        """수집된 데이터로 그래프를 업데이트합니다."""
+        # 데이터가 없으면 실행하지 않음
+        if not self.graph_data["gripper_positions"]:
+            return
+
+        # numpy 배열로 변환
+        gripper_pos = np.array(self.graph_data["gripper_positions"])
+        object_pos = np.array(self.graph_data["object_positions"])
+        cam_pos = np.array(self.graph_data["object_pos_in_cam"])
+        
+        # --- 3D Trajectory 업데이트 ---
+        self.traj_obj_line.set_data(object_pos[:, 0], object_pos[:, 1])
+        self.traj_obj_line.set_3d_properties(object_pos[:, 2])
+        self.traj_grip_line.set_data(gripper_pos[:, 0], gripper_pos[:, 1])
+        self.traj_grip_line.set_3d_properties(gripper_pos[:, 2])
+        
+        # 축 범위 자동 조절
+        self.ax1.relim()
+        self.ax1.autoscale_view(True, True, True)
+        
+        # --- Camera View 업데이트 ---
+        # Scatter는 set_offsets로 효율적으로 업데이트
+        self.cam_scatter.set_offsets(cam_pos)
+        
+        # 현재 레벨에 맞는 pview_margin으로 원 업데이트
+        current_level = self.current_reward_level[0].item()
+        pview_margin = reward_curriculum_levels[current_level]["pview_margin"]
+        self.margin_circle.set_radius(pview_margin)
+        
+        # 축 범위 자동 조절
+        self.ax2.relim()
+        self.ax2.autoscale_view(True, True)
+
+        # 캔버스 다시 그리기
+        self.fig1.canvas.draw()
+        self.fig2.canvas.draw()
+        plt.pause(0.001) # GUI가 업데이트될 시간을 줌
+    
     def _setup_scene(self):
         
         if robot_type == RobotType.FRANKA:
@@ -1321,6 +1426,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     # pre-physics step calls
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        
         self.actions = actions.clone().clamp(-1.0, 1.0)
         targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
@@ -1531,6 +1637,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         # print("box_grasp_pos : ", self.box_grasp_pos)
         # print("box_pos_cam : ", self.box_pos_cam) 
+        
+        if not training_mode and test_graph_mode:
+            gripper_pos = self.robot_grasp_pos[0].cpu().numpy()
+            object_pos = self.box_grasp_pos[0].cpu().numpy()
+            cam_pos = self.box_pos_cam[0, [0,2]].cpu().numpy()
+            
+            with open(self.csv_filepath, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([gripper_pos[0], gripper_pos[1], gripper_pos[2],
+                                 object_pos[0], object_pos[1], object_pos[2],
+                                 cam_pos[0], cam_pos[1]])
         
         reward = self._compute_rewards(
             self.actions,
@@ -1856,7 +1973,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         #     # print(f"    Avg Level : {avg_level:.2f} (Min: {min_level}, Max: {max_level}, Median: {median_level})")
         #     # print(f"    Thresholds for Avg Level ({avg_level_idx}): Success > {success_thresh:.2f}, Failure < {failure_thresh:.2f}")
         #     # print("---")
-    
+        
         super()._reset_idx(env_ids)
 
 
@@ -2038,26 +2155,35 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_reward[too_far] = -3.0 * torch.tanh(5.0 * distance_error[too_far])
         
         ## 각도 정렬 보상--------------------------------------------------------------------------
-        box_z = box_pos_w[:, 2]
-        top_mask = box_z > workspace_zones["z"]["middle"]    
-        middle_mask = (box_z > workspace_zones["z"]["bottom"]) & ~top_mask 
-        bottom_mask = ~top_mask & ~middle_mask
+        # box_z = box_pos_w[:, 2]
+        # top_mask = box_z > workspace_zones["z"]["middle"]    
+        # middle_mask = (box_z > workspace_zones["z"]["bottom"]) & ~top_mask 
+        # bottom_mask = ~top_mask & ~middle_mask
 
-        target_angle_rad = torch.zeros_like(box_z)
-        target_angle_rad[top_mask] = math.radians(20.0)    # Top 구역 목표
-        target_angle_rad[middle_mask] = math.radians(0.0)   # Middle 구역 목표
-        target_angle_rad[bottom_mask] = math.radians(-20.0)  # Bottom 구역 목표
+        # target_angle_rad = torch.zeros_like(box_z)
+        # target_angle_rad[top_mask] = math.radians(20.0)    # Top 구역 목표
+        # target_angle_rad[middle_mask] = math.radians(0.0)   # Middle 구역 목표
+        # target_angle_rad[bottom_mask] = math.radians(-20.0)  # Bottom 구역 목표
         # target_angle_rad[bottom_mask] = math.radians(-40.0)  # Bottom 구역 목표
         
+        # gaze_origin = torch.tensor([-0.1, 0.0, 0.35], device=self.device)
+
+        # box_pos_local = box_pos_w - self.scene.env_origins
+        # vector_to_object = box_pos_local - gaze_origin
+        # target_angle_rad = torch.atan2(vector_to_object[:, 2], vector_to_object[:, 0]) # atan2(dz, dx)
+        
+        box_pos_local = box_pos_w - self.scene.env_origins
+        obj_x, obj_z = box_pos_local[:, 0], box_pos_local[:, 2]
+        
+        x_indices = torch.bucketize(obj_x.contiguous(), self.boundaries_x)
+        z_indices = torch.bucketize(obj_z.contiguous(), self.boundaries_z)
+
         gripper_forward = tf_vector(franka_grasp_rot, gripper_forward_axis)
         actual_angle_rad = torch.asin(gripper_forward[:, 2].clamp(-1.0, 1.0))
-        print("actual_angle_rad : ", math.degrees(actual_angle_rad))
-        print("target_angle_rad : ", math.degrees(target_angle_rad))
-        
+        target_angle_rad = torch.deg2rad(self.target_angle_matrix[z_indices, x_indices])
         angle_error_rad = torch.abs(actual_angle_rad - target_angle_rad)
 
         within_tolerance = angle_error_rad <= vector_align_margin
-
         cos_reward = torch.cos((angle_error_rad / vector_align_margin) * (math.pi / 2))
 
         outside_error = angle_error_rad - vector_align_margin
@@ -2101,8 +2227,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         
         ## 시야 유지 보상
-        is_in_front_mask = box_pos_cam[:, 2] > 0
-        center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+        # is_in_front_mask = box_pos_cam[:, 2] > 0
+        # center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
+        
+        is_in_front_mask = box_pos_cam[:, 1] > 0
+        center_offset = torch.norm(box_pos_cam[:, [0,2]], dim=-1)
         
         # out_of_fov_mask = center_offset > pview_margin
         out_of_fov_mask = center_offset > pview_margins_tensor
@@ -2119,13 +2248,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             torch.full_like(center_offset, -10.0) 
         )
         
-        ## 자세 안정성 유지 패널티
-        # if not hasattr(self, "init_robot_joint_position"):
-        #     self.init_robot_joint_position = self._robot.data.joint_pos.clone()
-        
-        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.init_robot_joint_position)
-        # joint_weights = torch.ones_like(joint_deviation)
-        
+        ## 자세 안정성 유지 패널티        
         joint_deviation = torch.abs(self._robot.data.joint_pos - self.episode_init_joint_pos)
         joint_weights = torch.ones_like(joint_deviation)
         
@@ -2156,7 +2279,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             - joint_penalty_scale * joint_penalty 
         )
         
-        # print("=====================================")
+        print("=====================================")
         # print("gripper_to_box_dist : ", gripper_to_box_dist)
         # print("distance_reward : ", distance_reward)
         # # # print("alignment_cos : ", alignment_cos)
@@ -2164,7 +2287,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print("vector_alignment_reward:", vector_alignment_reward)
         # # print("angle_error_rad:", angle_error_rad)
         # print("position_alignment_reward:", position_alignment_reward)
-        # # # print("center_offset:", center_offset)
+        print("box_pos_cam :", box_pos_cam)
+        print("center_offset:", center_offset)
         # print("pview_reward:", pview_reward)
         # # print(f"ee_motion_penalty : {ee_motion_penalty}")
 
