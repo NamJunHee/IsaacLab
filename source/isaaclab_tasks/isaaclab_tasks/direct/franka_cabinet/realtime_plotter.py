@@ -1,15 +1,18 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
+from matplotlib.patches import Rectangle  # <<-- Circle 대신 Rectangle을 import 합니다.
 import time
 import os
 import numpy as np
 
 # --- 설정 ---
 CSV_FILEPATH = "/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/tracking_data.csv"
-PVIEW_MARGIN = 0.20 # 시각화용 마진값 (빨간 원)
 UPDATE_INTERVAL_S = 0.5 # 그래프 업데이트 주기 (초)
-GRAPH_RANGE = 0.40
+GRAPH_RANGE = 0.5
+
+# <<-- (수정) 원형 마진 대신 사각형 마진의 가로/세로 반경을 정의합니다. -->>
+PVIEW_MARGIN_H = 0.3 # 가로 반경 (+/- 0.3)
+PVIEW_MARGIN_V = 0.2 # 세로 반경 (+/- 0.2)
 # ------------
 
 def main():
@@ -38,8 +41,15 @@ def main():
 
     ax2.axhline(0, color='black', linestyle='--', linewidth=1)
     ax2.axvline(0, color='black', linestyle='--', linewidth=1)
-    margin_circle = Circle((0, 0), PVIEW_MARGIN, color='red', fill=False, linestyle='-.', label=f'pview_margin')
-    ax2.add_artist(margin_circle)
+    
+    # <<-- (수정) Circle 대신 Rectangle 객체를 생성하여 마진을 표시합니다. -->>
+    margin_rect = Rectangle((-PVIEW_MARGIN_H, -PVIEW_MARGIN_V),  # (x, y) 좌측 하단 꼭짓점
+                              2 * PVIEW_MARGIN_H,              # 가로 길이
+                              2 * PVIEW_MARGIN_V,              # 세로 길이
+                              color='red', fill=False, linestyle='-.', 
+                              linewidth=2, label='pview_margin')
+    ax2.add_artist(margin_rect)
+    
     ax2.set_title('Real-time Object Position in Camera Frame')
     ax2.set_xlabel('Horizontal View (Camera Y-axis)')
     ax2.set_ylabel('Vertical View (Camera X-axis)')
@@ -54,6 +64,7 @@ def main():
     
     try:
         while True:
+            # ... (이하 CSV 파일 읽기 및 그래프 데이터 업데이트 로직은 기존과 동일) ...
             try:
                 data = pd.read_csv(CSV_FILEPATH)
                 if len(data) < 1:
@@ -64,24 +75,18 @@ def main():
                 time.sleep(UPDATE_INTERVAL_S)
                 continue
 
-            # ... (3D 궤적 업데이트 코드는 기존과 동일) ...
             traj_obj_line.set_data(data['object_x'], data['object_y'])
             traj_obj_line.set_3d_properties(data['object_z'])
             traj_grip_line.set_data(data['gripper_x'], data['gripper_y'])
             traj_grip_line.set_3d_properties(data['gripper_z'])
             ax1.relim(); ax1.autoscale_view(True, True, True)
 
-            # --- 2D 카메라 시점 업데이트 ---
             plot_data = data[['cam_y', 'cam_x']].values
             plot_data[:, 1] *= -1 
             
-            # 전체 경로 업데이트
             cam_path_line.set_data(plot_data[:, 0], plot_data[:, 1])
-
-            # <<-- (수정) 마지막 점(현재 위치)을 리스트로 감싸서 업데이트 -->>
             cam_current_dot.set_data([plot_data[-1, 0]], [plot_data[-1, 1]])
 
-            # 캔버스 다시 그리기
             fig1.canvas.draw()
             fig2.canvas.draw()
             

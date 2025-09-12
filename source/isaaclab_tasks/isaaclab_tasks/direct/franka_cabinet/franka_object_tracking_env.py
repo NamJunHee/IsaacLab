@@ -75,7 +75,7 @@ image_publish = True
 
 robot_action = False
 robot_init_pose = False
-robot_fix = False
+robot_fix = True
 
 init_reward = True
 test_graph_mode = True
@@ -97,24 +97,24 @@ rand_pos_range = {
     # "y" : ( -0.3, 0.3),
     # "z" : (  0.05, 0.75),
     
-    "x" : (  0.35, 0.45),
-    "y" : ( -0.3, 0.3),
-    "z" : (  0.05, 0.10),
+    # "x" : (  0.45, 0.45),
+    # "y" : ( -0.0, 0.0),
+    # "z" : (  0.05, 0.05),
     
-    # "x" : (  0.35, 0.50),
-    # "y" : ( -0.3, 0.3),
-    # "z" : (  0.05, 0.1),
+    "x" : (  0.6, 0.60),
+    "y" : ( -0.3, 0.3),
+    "z" : (  0.1, 0.1),
     
     # "x" : (  0.6, 0.6),
-    # "y" : ( -0.3, 0.3),
-    # "z" : (  0.65, 0.65),
+    # "y" : ( -0.0, 0.0),
+    # "z" : (  0.45, 0.05),
     
     # "x" : (  0.4, 0.6),
     # "y" : ( -0.0, 0.0),
     # "z" : (  0.45, 0.45),
 }
-x_weights = {"far": 2.0, "middle": 1.0, "close" : 7.0}
-z_weights = {"top": 2.0, "middle": 1.0, "bottom": 7.0}
+x_weights = {"far": 2.0, "middle": 1.0, "close" : 3.0}
+z_weights = {"top": 2.0, "middle": 1.0, "bottom": 3.0}
             
 reward_curriculum_levels = [
     {
@@ -151,6 +151,14 @@ pview_margin = 0.20
 # pview_margin = 0.10
 
 pose_candidate = {
+    
+    "zero" : {"joint1": math.radians(0.0), 
+                      "joint2": math.radians(0.0), 
+                      "joint3": math.radians(0.0), 
+                      "joint4": math.radians(0.0), 
+                      "joint5": math.radians(0.0), 
+                      "joint6": math.radians(0.0)},
+    
     "top_close":   {"joint1": math.radians(0.0), 
                       "joint2": math.radians(-50.0), 
                       "joint3": math.radians(-30.0), 
@@ -259,7 +267,9 @@ pose_candidate = {
     #                   "joint6": math.radians(0.0)},
 }
 
+# initial_pose = pose_candidate["bottom_middle"]
 initial_pose = pose_candidate["middle_middle"]
+# initial_pose = pose_candidate["zero"]
 
 workspace_zones = {
     "x": {"far": 0.65, "middle": 0.50, "close" : 0.45},
@@ -1179,7 +1189,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             q_cam_in_hand = torch.tensor([0.0, 0.707, 0.707, 0.0], device=hand_pos.device).repeat(self.num_envs, 1)
         elif robot_type == RobotType.UF:    
             cam_offset_pos = torch.tensor([0.0, 0.0, 0.1], device=hand_pos.device).repeat(self.num_envs, 1)
-            q_cam_in_hand = torch.tensor([0.0, 0.707, 0.707, 0.0], device=hand_pos.device).repeat(self.num_envs, 1)
+            # q_cam_in_hand = torch.tensor([0.0, -0.7071, 0.0, 0.7071], device=hand_pos.device).repeat(self.num_envs, 1)
+            q_cam_in_hand = torch.tensor([-0.7071, 0.0, 0.7071, 0.0], device=hand_pos.device).repeat(self.num_envs, 1)
         elif robot_type == RobotType.DOOSAN:
             cam_offset_pos = torch.tensor([0.0, 0.0, 0.0], device=hand_pos.device).repeat(self.num_envs, 1)
             # q_cam_in_hand = torch.tensor([-0.5, 0.5, -0.5, -0.5], device=hand_pos.device).repeat(self.num_envs, 1)
@@ -1192,10 +1203,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         camera_pos_w = camera_pos_w - self.scene.env_origins
         
         camera_rot_w = self.quat_mul(hand_rot, q_cam_in_hand)
-        # camera_rot_w = self.robot_grasp_rot
-        
-        # if robot_type == RobotType.DOOSAN:
-        #     camera_rot_w = self.quat_mul(self.robot_grasp_rot, q_cam_in_hand)
+        # camera_rot_w = hand_rot
 
         return camera_pos_w, camera_rot_w
 
@@ -1630,18 +1638,27 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # camera_rot_w = self.robot_grasp_rot
         
         camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.robot_grasp_pos, self.robot_grasp_rot)
-
+        
+        print("camera_pos_w :",camera_pos_w)
+        
         self.box_pos_cam, box_rot_cam = self.world_to_camera_pose(
             camera_pos_w, camera_rot_w,
             self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
         )
         # print("box_grasp_pos : ", self.box_grasp_pos)
+        # print("env_origins : ", self.scene.env_origins)
         # print("box_pos_cam : ", self.box_pos_cam) 
         
         if not training_mode and test_graph_mode:
             gripper_pos = self.robot_grasp_pos[0].cpu().numpy()
             object_pos = self.box_grasp_pos[0].cpu().numpy()
-            cam_pos = self.box_pos_cam[0, [0,2]].cpu().numpy()
+            
+            print("self.box_pos_cam : ", self.box_pos_cam)
+            # cam_pos = self.box_pos_cam[0, [2,1]].cpu().numpy()
+            
+            cam_pos = np.zeros(2) 
+            cam_pos[0] = self.box_pos_cam[0,2].cpu().numpy()
+            cam_pos[1] = -self.box_pos_cam[0,1].cpu().numpy()
             
             with open(self.csv_filepath, 'a', newline='') as f:
                 writer = csv.writer(f)
@@ -2231,7 +2248,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # center_offset = torch.norm(box_pos_cam[:, :2], dim=-1)
         
         is_in_front_mask = box_pos_cam[:, 1] > 0
-        center_offset = torch.norm(box_pos_cam[:, [0,2]], dim=-1)
+        center_offset = torch.norm(box_pos_cam[:, [0,1]], dim=-1)
         
         # out_of_fov_mask = center_offset > pview_margin
         out_of_fov_mask = center_offset > pview_margins_tensor
@@ -2279,7 +2296,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             - joint_penalty_scale * joint_penalty 
         )
         
-        print("=====================================")
+        # print("=====================================")
         # print("gripper_to_box_dist : ", gripper_to_box_dist)
         # print("distance_reward : ", distance_reward)
         # # # print("alignment_cos : ", alignment_cos)
@@ -2287,8 +2304,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # print("vector_alignment_reward:", vector_alignment_reward)
         # # print("angle_error_rad:", angle_error_rad)
         # print("position_alignment_reward:", position_alignment_reward)
-        print("box_pos_cam :", box_pos_cam)
-        print("center_offset:", center_offset)
+        # print("box_pos_cam :", box_pos_cam)
+        # print("center_offset:", center_offset)
         # print("pview_reward:", pview_reward)
         # # print(f"ee_motion_penalty : {ee_motion_penalty}")
 
