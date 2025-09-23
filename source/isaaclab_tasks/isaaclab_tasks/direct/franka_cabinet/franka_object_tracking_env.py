@@ -85,6 +85,7 @@ add_episode_length = 200
 # add_episode_length = 400
 # add_episode_length = 800
 # add_episode_length = -930
+# add_episode_length = -500
 
 vel_ratio = 0.10 # max 2.61s
 
@@ -94,9 +95,9 @@ obj_speed = 0.001
 # obj_speed = 0.002
 
 rand_pos_range = {
-    "x" : (  0.40, 0.80),
+    "x" : (  0.35, 0.90),
     "y" : ( -0.3, 0.3),
-    "z" : (  0.05, 0.75),
+    "z" : (  0.08, 1.0),
     
     # "x" : (  0.40, 0.65),
     # "y" : ( -0.0, 0.0),
@@ -110,9 +111,13 @@ rand_pos_range = {
     # "y" : ( -0.0, 0.0),
     # "z" : (  0.05, 0.75),
     
-    # "x" : (  0.1, 0.4),
+    # "x" : (  0.35, 0.35),
     # "y" : ( -0.0, 0.0),
-    # "z" : (  0.05, 0.05),
+    # "z" : (  0.78, 0.78),
+    
+    # "x" : (  0.35, 0.35),
+    # "y" : ( -0.0, 0.0),
+    # "z" : (  0.30, 0.30),
 }
 
 reward_curriculum_levels = [
@@ -160,13 +165,21 @@ pose_candidate = {
     #                   "joint5": math.radians(0.0), 
     #                   "joint6": math.radians(0.0)},
     
+    ## top------------------------------------------------
+    # "top_close":   {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-50.0), 
+    #                   "joint3": math.radians(-30.0), 
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(-30.0), 
+    #                   "joint6": math.radians(0.0)},
+        
     "top_close":   {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-50.0), 
-                      "joint3": math.radians(-30.0), 
+                      "joint2": math.radians(-75.0), 
+                      "joint3": math.radians(-40.0), 
                       "joint4": math.radians(0.0), 
-                      "joint5": math.radians(-30.0), 
+                      "joint5": math.radians(0.0), 
                       "joint6": math.radians(0.0)},
-    
+
     # "top_close_2":   {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-110.0), 
     #                   "joint3": math.radians(5.0), 
@@ -174,11 +187,18 @@ pose_candidate = {
     #                   "joint5": math.radians(-5.0), 
     #                   "joint6": math.radians(0.0)},
     
+    # "top_middle":   {"joint1": math.radians(  0.0), 
+    #                   "joint2": math.radians(-30.0), 
+    #                   "joint3": math.radians(-30.0), 
+    #                   "joint4": math.radians(  0.0), 
+    #                   "joint5": math.radians( -45.0), 
+    #                   "joint6": math.radians(  0.0)},
+    
     "top_middle":   {"joint1": math.radians(  0.0), 
-                      "joint2": math.radians(-30.0), 
-                      "joint3": math.radians(-30.0), 
+                      "joint2": math.radians(-25.0), 
+                      "joint3": math.radians(-60.0), 
                       "joint4": math.radians(  0.0), 
-                      "joint5": math.radians( -45.0), 
+                      "joint5": math.radians( -30.0), 
                       "joint6": math.radians(  0.0)},
     
     # "top_middle_2":   {"joint1": math.radians(  0.0), 
@@ -188,12 +208,19 @@ pose_candidate = {
     #                   "joint5": math.radians( -35.0), 
     #                   "joint6": math.radians(  0.0)},
     
+    # "top_far":     {"joint1": math.radians(  0.0), 
+    #                   "joint2": math.radians( -20.0),  
+    #                   "joint3": math.radians(-45.0), 
+    #                   "joint4": math.radians(  0.0), 
+    #                   "joint5": math.radians(  -35.0), 
+    #                   "joint6": math.radians(  0.0)},
+    
     "top_far":     {"joint1": math.radians(  0.0), 
-                      "joint2": math.radians( -20.0),  
-                      "joint3": math.radians(-45.0), 
-                      "joint4": math.radians(  0.0), 
-                      "joint5": math.radians(  -35.0), 
-                      "joint6": math.radians(  0.0)},
+                    "joint2": math.radians(  0.0),  
+                    "joint3": math.radians(-90.0), 
+                    "joint4": math.radians(  0.0), 
+                    "joint5": math.radians(-20.0), 
+                    "joint6": math.radians(  0.0)},
     
     # "top_far_2":     {"joint1": math.radians(  0.0), 
     #                   "joint2": math.radians(  0.0),  
@@ -202,49 +229,70 @@ pose_candidate = {
     #                   "joint5": math.radians(-35.0), 
     #                   "joint6": math.radians(  0.0)},
     
+    ##middle------------------------------------------------
+    # "middle_close":  {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-110.0),
+    #                   "joint3": math.radians( -5.0),  
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(45.0), 
+    #                   "joint6": math.radians(0.0)},
     
-    "middle_close":  {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-110.0),
-                      "joint3": math.radians( -5.0),  
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians(45.0), 
-                      "joint6": math.radians(0.0)},
+    # "middle_middle": {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-40.0), 
+    #                   "joint3": math.radians(0.0), 
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(-45.0),  
+    #                   "joint6": math.radians(0.0)},
     
-    "middle_middle": {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-40.0), 
-                      "joint3": math.radians(0.0), 
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians(-45.0),  
-                      "joint6": math.radians(0.0)},
+    # "middle_far":    {"joint1": math.radians(0.0),  
+    #                   "joint2": math.radians(15.0),  
+    #                   "joint3": math.radians(-50.0),
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(-50.0), 
+    #                   "joint6": math.radians(0.0)},
     
-    "middle_far":    {"joint1": math.radians(0.0),  
-                      "joint2": math.radians(15.0),  
-                      "joint3": math.radians(-50.0),
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians(-50.0), 
-                      "joint6": math.radians(0.0)},
+    "middle_close":  {"joint1": math.radians(  0.0), 
+                      "joint2": math.radians(-90.0),
+                      "joint3": math.radians(-25.0),  
+                      "joint4": math.radians(  0.0), 
+                      "joint5": math.radians( 25.0), 
+                      "joint6": math.radians( 0.0)},
     
+    "middle_middle": {"joint1": math.radians(  0.0), 
+                      "joint2": math.radians(-45.0), 
+                      "joint3": math.radians(-40.0), 
+                      "joint4": math.radians(  0.0), 
+                      "joint5": math.radians( -5.0),  
+                      "joint6": math.radians(  0.0)},
+    
+    "middle_far":    {"joint1": math.radians(  0.0),  
+                      "joint2": math.radians(  5.0),  
+                      "joint3": math.radians(-80.0),
+                      "joint4": math.radians(  0.0), 
+                      "joint5": math.radians(-15.0), 
+                      "joint6": math.radians(  0.0)},
 
-    "bottom_close":  {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-95.0),   
-                      "joint3": math.radians(-5.0),   
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians( 50.0),
-                      "joint6": math.radians(0.0)},
+    ##bottom------------------------------------------------
+    # "bottom_close":  {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-95.0),   
+    #                   "joint3": math.radians(-5.0),   
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians( 50.0),
+    #                   "joint6": math.radians(0.0)},
     
-    "bottom2_close2":  {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-70.0),   
-                      "joint3": math.radians( 0.0),   
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians( 35.0),
-                      "joint6": math.radians(0.0)},
+    # "bottom2_close2":  {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-70.0),   
+    #                   "joint3": math.radians( 0.0),   
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians( 35.0),
+    #                   "joint6": math.radians(0.0)},
     
-    "bottom_middle": {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-60.0),  
-                      "joint3": math.radians(-0.0), 
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians(10.0),
-                      "joint6": math.radians(0.0)},
+    # "bottom_middle": {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-60.0),  
+    #                   "joint3": math.radians(-0.0), 
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(10.0),
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_middle_2": {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-30.0),  
@@ -253,12 +301,12 @@ pose_candidate = {
     #                   "joint5": math.radians(-10.0),
     #                   "joint6": math.radians(0.0)},
     
-    "bottom_far":    {"joint1": math.radians(0.0), 
-                      "joint2": math.radians(-25.0),  
-                      "joint3": math.radians(-15.0),
-                      "joint4": math.radians(0.0), 
-                      "joint5": math.radians(-5.0), 
-                      "joint6": math.radians(0.0)},
+    # "bottom_far":    {"joint1": math.radians(0.0), 
+    #                   "joint2": math.radians(-25.0),  
+    #                   "joint3": math.radians(-15.0),
+    #                   "joint4": math.radians(0.0), 
+    #                   "joint5": math.radians(-5.0), 
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_far_2":    {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(15.0),  
@@ -266,19 +314,53 @@ pose_candidate = {
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-5.0), 
     #                   "joint6": math.radians(0.0)},
+    
+    "bottom_close":    {"joint1": math.radians(  0.0), 
+                        "joint2": math.radians(-95.0),  
+                        "joint3": math.radians(-10.0),
+                        "joint4": math.radians(  0.0), 
+                        "joint5": math.radians( 60.0), 
+                        "joint6": math.radians(  0.0)},
+    
+    "bottom_middle":   {"joint1": math.radians(  0.0), 
+                        "joint2": math.radians(-40.0),  
+                        "joint3": math.radians(-25.0),
+                        "joint4": math.radians(  0.0), 
+                        "joint5": math.radians( 20.0), 
+                        "joint6": math.radians(  0.0)},
+    
+    "bottom_far":      {"joint1": math.radians(  0.0), 
+                        "joint2": math.radians(  5.0),  
+                        "joint3": math.radians(-55.0),
+                        "joint4": math.radians(  0.0), 
+                        "joint5": math.radians(  5.0), 
+                        "joint6": math.radians(  0.0)},
 }
 
-# initial_pose = pose_candidate["bottom_middle"]
-initial_pose = pose_candidate["middle_middle"]
+initial_pose = pose_candidate["bottom_close"]
+# initial_pose = pose_candidate["middle_middle"]
+# initial_pose = pose_candidate["top_close"]
 # initial_pose = pose_candidate["zero"]
 
 workspace_zones = {
     "x": {"close" : 0.35, "middle": 0.50,"far": 0.70},
-    "z": {"top": 0.7,"middle": 0.50, "bottom": 0.1}
+    "z": {"bottom": 0.30, "middle": 0.50,"top": 0.78}
 }
 
 x_weights = {"far": 1.0, "middle": 1.0, "close" : 1.0}
 z_weights = {"top": 1.0, "middle": 1.0, "bottom": 1.0}
+
+zone_activation = {
+    "top_close":    True,
+    "top_middle":   True,
+    "top_far":      False, # << 이 값을 False로 바꾸면 제외됩니다.
+    "middle_close": True,
+    "middle_middle":True,
+    "middle_far":   True,
+    "bottom_close": True,
+    "bottom_middle":True,
+    "bottom_far":   True,
+}
 
 CSV_FILEPATH = "/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/tracking_data.csv"
 
@@ -292,7 +374,7 @@ zone_definitions = {
     "bottom_close": {"x": (rand_pos_range["x"][0], workspace_zones["x"]["middle"]), "z": (rand_pos_range["z"][0], workspace_zones["z"]["bottom"])},
     "bottom_middle":{"x": (workspace_zones["x"]["middle"], workspace_zones["x"]["far"]),   "z": (rand_pos_range["z"][0], workspace_zones["z"]["bottom"])},
     "bottom_far":   {"x": (workspace_zones["x"]["far"],   rand_pos_range["x"][1]),         "z": (rand_pos_range["z"][0], workspace_zones["z"]["bottom"])},
-    "bottom2_close2": {"x": (rand_pos_range["x"][0], workspace_zones["x"]["close"]), "z": (rand_pos_range["z"][0], workspace_zones["z"]["bottom"])}
+    # "bottom2_close2": {"x": (rand_pos_range["x"][0], workspace_zones["x"]["close"]), "z": (rand_pos_range["z"][0], workspace_zones["z"]["bottom"])}
 }
 zone_keys = list(pose_candidate.keys())
 
@@ -568,7 +650,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                     clipping_range=(0.1, 1.0e5),
                 ),
                 offset=CameraCfg.OffsetCfg(
-                    pos=(0.0, 0.0, 0.1),
+                    # pos=(0.0, 0.0, 0.1),
+                    pos=(0.07, 0.0, 0.05), # 위/아래, 좌/우, 앞/뒤
                     rot=(0.0, 0.707, 0.707, 0.0),
                     convention="ROS",
                 )
@@ -1796,8 +1879,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 물체 위치 랜덤 생성 (Static) (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
         if object_move == ObjectMoveType.STATIC:
             num_resets = len(env_ids)
+            
             final_weights = []
             for key in zone_keys:
+                if not zone_activation.get(key, False): # .get()으로 안전하게 접근
+                    final_weights.append(0.0)
+                    continue
                 z_part, x_part = key.split('_')
                 combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
                 final_weights.append(combined_weight)
@@ -1851,23 +1938,37 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
                     obj_x, obj_z = object_pos_local[0], object_pos_local[2]
 
-                    if obj_x < workspace_zones["x"]["close"] and obj_z < workspace_zones["z"]["bottom"]:
-                        x_zone = "close2"
-                        z_zone = "bottom2"
-                    else:
-                        if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.65
-                            x_zone = "far"
-                        elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.5 <= x < 0.65
-                            x_zone = "middle"
-                        else:
-                            x_zone = "close"
+                    # if obj_x < workspace_zones["x"]["close"] and obj_z < workspace_zones["z"]["bottom"]:
+                    #     x_zone = "close2"
+                    #     z_zone = "bottom2"
+                    # else:
+                    #     if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.65
+                    #         x_zone = "far"
+                    #     elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.5 <= x < 0.65
+                    #         x_zone = "middle"
+                    #     else:
+                    #         x_zone = "close"
 
-                        if obj_z >= workspace_zones["z"]["top"]:
-                            z_zone = "top"
-                        elif obj_z >= workspace_zones["z"]["middle"]:
-                            z_zone = "middle"
-                        else:
-                            z_zone = "bottom"
+                    #     if obj_z >= workspace_zones["z"]["top"]:
+                    #         z_zone = "top"
+                    #     elif obj_z >= workspace_zones["z"]["middle"]:
+                    #         z_zone = "middle"
+                    #     else:
+                    #         z_zone = "bottom"
+                            
+                    if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
+                        x_zone = "far"
+                    elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
+                        x_zone = "middle"
+                    else:
+                        x_zone = "close"
+                        
+                    if obj_z >= workspace_zones["z"]["top"]:
+                        z_zone = "top"
+                    elif obj_z >= workspace_zones["z"]["bottom"]:
+                        z_zone = "middle"
+                    else:
+                        z_zone = "bottom"
                         
                     zone_key = f"{z_zone}_{x_zone}"
                     target_pose_dict = pose_candidate[zone_key]
@@ -2309,14 +2410,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # print("=====================================")
         # print("distance_reward : ", distance_reward)
-        # print("gripper_to_box_dist : ", gripper_to_box_dist)
+        # # print("gripper_to_box_dist : ", gripper_to_box_dist)
         # print("vector_alignment_reward:", vector_alignment_reward)
-        # print("actual_angle_rad : ", {torch.rad2deg(actual_angle_rad)})
-        # print("target_angle_rad : ", {torch.rad2deg(target_angle_rad)})
+        # # print("actual_angle_rad : ", {torch.rad2deg(actual_angle_rad)})
+        # # print("target_angle_rad : ", {torch.rad2deg(target_angle_rad)})
         # print("position_alignment_reward:", position_alignment_reward)
-        # print("gripper_proj_dist : ", gripper_proj_dist)
+        # # print("gripper_proj_dist : ", gripper_proj_dist)
         # print("pview_reward:", pview_reward)
-        # print("center_offset:", center_offset)
+        # # print("center_offset:", center_offset)
 
         # print(f"ee_motion_penalty : {ee_motion_penalty}")
 
