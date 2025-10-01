@@ -63,17 +63,17 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
     # CURRICULAR = "curricular"
-# object_move = ObjectMoveType.STATIC
-object_move = ObjectMoveType.LINEAR
+object_move = ObjectMoveType.STATIC
+# object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = False
+training_mode = True
 
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
-test_graph_mode = True
+camera_enable = False
+image_publish = False
+test_graph_mode = False
 
 robot_action = False
 robot_init_pose = False
@@ -87,7 +87,7 @@ add_episode_length = 000
 # add_episode_length = -930
 # add_episode_length = -500
 
-vel_ratio = 0.08 # max 2.61s
+vel_ratio = 0.10 # max 2.61s
 
 # obj_speed = 0.0005
 obj_speed = 0.001
@@ -95,9 +95,9 @@ obj_speed = 0.001
 # obj_speed = 0.002
 
 rand_pos_range = {
-    "x" : (  0.35, 0.90),
+    "x" : (  0.35, 0.80),
     "y" : ( -0.3, 0.3),
-    "z" : (  0.08, 1.0),
+    "z" : (  0.08, 0.8),
     
     # "x" : (  0.40, 0.65),
     # "y" : ( -0.0, 0.0),
@@ -340,8 +340,8 @@ pose_candidate = {
                         "joint6": math.radians(  0.0)},
 }
 
-# initial_pose = pose_candidate["bottom_close"]
-initial_pose = pose_candidate["middle_close"]
+initial_pose = pose_candidate["bottom_close"]
+# initial_pose = pose_candidate["middle_close"]
 # initial_pose = pose_candidate["top_close"]
 # initial_pose = pose_candidate["zero"]
 
@@ -1777,13 +1777,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
 
-        if not training_mode: # 테스트 모드에서는 커리큘럼 업데이트를 건너뜀
-            super()._reset_idx(env_ids)
-            return
+        # if not training_mode: # 테스트 모드에서는 커리큘럼 업데이트를 건너뜀
+        #     super()._reset_idx(env_ids)
+        #     return
         
         avg_reward = self.episode_reward_buf[env_ids] / self.episode_length_buf[env_ids]
 
-        if self.is_calibrating:
+        if self.is_calibrating and training_mode:
             self.calibration_rewards.extend(avg_reward.cpu().numpy())
             
             if len(self.calibration_rewards) >= self.CALIBRATION_RESETS:
