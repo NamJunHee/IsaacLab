@@ -63,8 +63,8 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
     # CURRICULAR = "curricular"
-# object_move = ObjectMoveType.STATIC
-object_move = ObjectMoveType.LINEAR
+object_move = ObjectMoveType.STATIC
+# object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
 training_mode = True
@@ -81,7 +81,7 @@ robot_fix = False
 
 init_reward = True
 
-add_episode_length = 500
+add_episode_length = 200
 # add_episode_length = 300
 # add_episode_length = 800
 # add_episode_length = -930
@@ -113,7 +113,7 @@ reward_curriculum_levels = [
         "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(15.0),
         "position_align_margin" : 0.15,
-        "pview_margin" : 0.15
+        "pview_margin" : 0.15,
     },
     {
         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
@@ -833,6 +833,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self.episode_init_joint_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         
+        self.curriculum_factor_k0 = 0.3  # k_c의 초기값 (논문 권장값)
+        self.curriculum_factor_kd = 0.997 # k_c의 진전 속도
+        
+        # k_c (커리큘럼 계수) 상태 변수. 모든 환경이 k_c의 초기값에서 시작.
+        # k_c는 (num_envs, 1) 형태로 저장됨
+        self.curriculum_factor_k_c = torch.full((self.num_envs, 1), self.curriculum_factor_k0, device=self.device)
+        
         if robot_type == RobotType.FRANKA:
             self.joint_names = [
             "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4",
@@ -1536,12 +1543,35 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
                 
-        if training_mode or object_move == ObjectMoveType.CIRCLE :
-            terminated = 0
-            truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
+        # if training_mode or object_move == ObjectMoveType.CIRCLE :
+        #     terminated = 0
+        #     truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
+        # else:
+        #     terminated = 0
+        #     truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length #- 400 # 물체 램덤 생성 환경 초기화 주기
+        
+        # 하드 종료 조건 (Terminated) 정의
+        if hasattr(self, 'is_pview_fail'):
+            # PView 실패 시 즉시 종료 (True)
+            # terminated = self.is_pview_fail
+            
+            # k_c 팩터 (스케일) 가져오기
+            # self.curriculum_factor_k_c는 (num_envs, 1)이므로, squeeze(-1)로 (num_envs)로 만듦
+            k_c_factor = self.curriculum_factor_k_c.squeeze(-1)
+            
+            # K_c 임계값 설정: k_c가 0.5 이상일 때만 하드 종료 조건을 활성화
+            k_c_threshold_mask = k_c_factor >= 0.5
+            
+            # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
+            # k_c가 충분히 높을 때만 is_pview_fail에 의해 종료됨
+            terminated = self.is_pview_fail & k_c_threshold_mask
+            
         else:
-            terminated = 0
-            truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length #- 400 # 물체 램덤 생성 환경 초기화 주기
+            # 초기화 전이거나 오류 발생 시 False (종료 안 함)
+            terminated = torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+        
+        # 2. Truncated 조건 (시간 경과) 정의 (기존 방식 유지)
+        truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
         
         #환경 고정
         # terminated = 0
@@ -1571,7 +1601,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         gripper_to_box_dist = torch.norm(self.robot_grasp_pos - self.box_grasp_pos, p=2, dim=-1)
 
-        if not training_mode and test_graph_mode:
+        if not training_mode and test_graph_mode: ##test_graph_mode
             gripper_pos = self.robot_grasp_pos[0].cpu().numpy()
             object_pos = self.box_grasp_pos[0].cpu().numpy()
             
@@ -1589,6 +1619,27 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                                 distance_val])
                 f.flush() 
                 os.fsync(f.fileno()) 
+        
+        # --- 하드 종료 조건 계산 및 저장 ---
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+        self.box_pos_cam, box_rot_cam = self.world_to_camera_pose(
+            camera_pos_w, camera_rot_w,
+            self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
+        )
+
+        # 현재 레벨의 pview_margin 값 동적 할당
+        levels = self.current_reward_level
+        pview_margins_tensor = torch.tensor([reward_curriculum_levels[l.item()]["pview_margin"] for l in levels], device=self.device)
+
+        # 1. 시야 중심 이탈 마스크 (center_offset > margin)
+        center_offset = torch.norm(self.box_pos_cam[:, [2, 1]], dim=-1)
+        out_of_fov_mask = center_offset > 0.3 # 마진보다 1.5배 벗어날 경우 실패로 간주
+
+        # 2. 물체가 카메라 뒤에 위치하는 마스크 (is_in_front_mask 반대)
+        is_behind_mask = -self.box_pos_cam[:, 0] <= 0 
+
+        # 3. 최종 PView 실패 마스크
+        self.is_pview_fail = out_of_fov_mask | is_behind_mask
         
         reward = self._compute_rewards(
             self.actions,
@@ -1683,6 +1734,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             joint_vel = torch.zeros_like(joint_pos)
             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
             self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            
+            ## 251023_kc
+            new_k_c = torch.pow(self.curriculum_factor_k_c[env_ids], self.curriculum_factor_kd)
+            self.curriculum_factor_k_c[env_ids] = new_k_c
+        
+            # k_c가 1.0을 초과하지 않도록 클램핑
+            self.curriculum_factor_k_c.clamp_(max=1.0)    
+        
         else:
             # 최초 한 번만 실행
             if not hasattr(self, "_initialized"):
@@ -1743,21 +1802,43 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
             self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
             
-            rand_reset_pos = self.rand_pos + self.scene.env_origins
+            ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
+            # rand_reset_pos = self.rand_pos + self.scene.env_origins
+            rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
             
-            random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            # random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            # rand_reset_rot = torch.stack([
+            #     torch.cos(random_angles / 2),
+            #     torch.zeros(self.num_envs, device=self.device),
+            #     torch.zeros(self.num_envs, device=self.device),
+            #     torch.sin(random_angles / 2)  
+            # ], dim=1)
+            
+            # rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+            # zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+            
+            # self._box.write_root_pose_to_sim(rand_reset_box_pose)
+            # self._box.write_root_velocity_to_sim(zero_root_velocity)
+            
+            # 1. rand_reset_rot을 num_resets 크기로 생성
+            # 전체 num_envs가 아닌 num_resets 크기로 생성해야 함
+            random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            
             rand_reset_rot = torch.stack([
                 torch.cos(random_angles / 2),
-                torch.zeros(self.num_envs, device=self.device),
-                torch.zeros(self.num_envs, device=self.device),
+                torch.zeros(num_resets, device=self.device), # 크기: num_resets
+                torch.zeros(num_resets, device=self.device), # 크기: num_resets
                 torch.sin(random_angles / 2)  
             ], dim=1)
             
+            # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
             rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+            
             zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
             
-            self._box.write_root_pose_to_sim(rand_reset_box_pose)
-            self._box.write_root_velocity_to_sim(zero_root_velocity)
+            # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
+            self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
+            self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
             
             if training_mode == True:
                 joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
