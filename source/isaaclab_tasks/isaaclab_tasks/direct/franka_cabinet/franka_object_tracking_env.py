@@ -63,8 +63,8 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
     # CURRICULAR = "curricular"
-object_move = ObjectMoveType.STATIC
-# object_move = ObjectMoveType.LINEAR
+# object_move = ObjectMoveType.STATIC
+object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
 training_mode = True
@@ -89,8 +89,8 @@ add_episode_length = 200
 
 vel_ratio = 0.10 # max 2.61s
 
-# obj_speed = 0.0005
-obj_speed = 0.001
+obj_speed = 0.0005
+# obj_speed = 0.001
 # obj_speed = 0.0015
 # obj_speed = 0.002
 
@@ -1553,7 +1553,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 하드 종료 조건 (Terminated) 정의
         if hasattr(self, 'is_pview_fail'):
             # PView 실패 시 즉시 종료 (True)
-            # terminated = self.is_pview_fail
+            terminated = self.is_pview_fail
             
             # k_c 팩터 (스케일) 가져오기
             # self.curriculum_factor_k_c는 (num_envs, 1)이므로, squeeze(-1)로 (num_envs)로 만듦
@@ -1564,6 +1564,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
             # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
             # k_c가 충분히 높을 때만 is_pview_fail에 의해 종료됨
+            # print("is_pview_fail:", self.is_pview_fail)
             terminated = self.is_pview_fail & k_c_threshold_mask
             
         else:
@@ -1626,10 +1627,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             camera_pos_w, camera_rot_w,
             self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
         )
-
-        # 현재 레벨의 pview_margin 값 동적 할당
-        levels = self.current_reward_level
-        pview_margins_tensor = torch.tensor([reward_curriculum_levels[l.item()]["pview_margin"] for l in levels], device=self.device)
 
         # 1. 시야 중심 이탈 마스크 (center_offset > margin)
         center_offset = torch.norm(self.box_pos_cam[:, [2, 1]], dim=-1)
@@ -1821,7 +1818,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # self._box.write_root_velocity_to_sim(zero_root_velocity)
             
             # 1. rand_reset_rot을 num_resets 크기로 생성
-            # 전체 num_envs가 아닌 num_resets 크기로 생성해야 함
             random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
             
             rand_reset_rot = torch.stack([
@@ -1908,6 +1904,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # 물체 위치 선형 랜덤 이동 (Linear) ---------------------------------------------------------------
         if object_move == ObjectMoveType.LINEAR:
+        
             self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
             self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
 
@@ -1917,7 +1914,133 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             direction = self.target_box_pos - self.new_box_pos_rand
             direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
             self.rand_pos_step = (direction / direction_norm * obj_speed)
-        
+            
+            ## 로봇 자세 초기화 설정
+            num_resets = len(env_ids)
+            
+            final_weights = []
+            for key in zone_keys:
+                if not zone_activation.get(key, False): # .get()으로 안전하게 접근
+                    final_weights.append(0.0)
+                    continue
+                z_part, x_part = key.split('_')
+                combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
+                final_weights.append(combined_weight)
+            
+            weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
+
+            selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
+
+            x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
+            x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
+            z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
+            z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
+
+            x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
+            z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
+
+            current_levels = self.current_reward_level[env_ids]
+            
+            y_pos = torch.zeros(num_resets, device=self.device)
+            
+            for level_idx in range(self.max_reward_level + 1):
+                level_mask = (current_levels == level_idx)
+                num_in_level = torch.sum(level_mask)
+                
+                if num_in_level > 0:
+                    y_range = reward_curriculum_levels[level_idx]["y_range"]
+                    y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
+
+            self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
+            
+            ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
+            rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
+
+            # 1. rand_reset_rot을 num_resets 크기로 생성
+            random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            
+            rand_reset_rot = torch.stack([
+                torch.cos(random_angles / 2),
+                torch.zeros(num_resets, device=self.device), # 크기: num_resets
+                torch.zeros(num_resets, device=self.device), # 크기: num_resets
+                torch.sin(random_angles / 2)  
+            ], dim=1)
+            
+            # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
+            rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+            
+            zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+            
+            # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
+            self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
+            self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
+            
+            if training_mode == True:
+                joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+                joint1_idx = self._robot.find_joints(["joint1"])[0]
+                
+                YAW_CANDIDATE_ANGLES = {
+                    15.0: math.radians(15.0),
+                    45.0: math.radians(45.0),
+                    75.0: math.radians(75.0),
+                }
+                
+                ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
+                
+                for i, env_id in enumerate(env_ids):
+                    object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
+                    obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
+                            
+                    if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
+                        x_zone = "far"
+                    elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
+                        x_zone = "middle"
+                    else:
+                        x_zone = "close"
+                        
+                    if obj_z >= workspace_zones["z"]["top"]:
+                        z_zone = "top"
+                    elif obj_z >= workspace_zones["z"]["bottom"]:
+                        z_zone = "middle"
+                    else:
+                        z_zone = "bottom"
+                        
+                    zone_key = f"{z_zone}_{x_zone}"
+                    target_pose_dict = pose_candidate[zone_key]
+                    
+                    for joint_name, pos in target_pose_dict.items():
+                        if joint_name != "joint1": # Joint 1 제외
+                            joint_idx = self._robot.find_joints(joint_name)[0]
+                            joint_pos[i, joint_idx] = pos
+                            
+                    # 물체 위치의 Yaw 각도 (라디안) 계산
+                    target_yaw_rad = torch.atan2(obj_y, obj_x)
+                    # 각도를 Degree로 변환하고 절대값 취함 (0~180도)
+                    abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
+
+                    # 6개 구역 중 어느 구역에 속하는지 판단하여 목표 각도 설정
+                    if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: # 0 ~ 30도
+                        target_angle_deg = 15.0
+                    elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: # 30 ~ 60도
+                        target_angle_deg = 45.0
+                    else: # 60 ~ 90도 (혹은 그 이상)
+                        target_angle_deg = 75.0
+
+                    # 최종 목표 각도 (부호 복원: obj_y의 부호를 따라감)
+                    final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
+                    
+                    # Joint 1 초기값 최종 설정
+                    joint_pos[i, joint1_idx] = final_yaw_rad
+                    
+                # Joint 1의 클램핑은 Joint 1의 인덱스를 사용하여 수행
+                joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+
+                joint_vel = torch.zeros_like(joint_pos)
+                self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+                self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+                
+                self.episode_init_joint_pos[env_ids] = joint_pos
+            
         self.cfg.current_time = 0
         self._compute_intermediate_values(env_ids)
         

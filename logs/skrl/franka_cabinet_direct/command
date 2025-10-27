@@ -1,0 +1,5 @@
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py --task Isaac-Franka-Object-Tracking-Direct-v0 --checkpoint /home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/logs/skrl/franka_cabinet_direct/2025-10-26_12-46-23_ppo_torch/checkpoints/best_agent.pt --num_envs 1 --enable_camera
+
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Franka-Object-Tracking-Direct-v0 --checkpoint /home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/logs/skrl/franka_cabinet_direct/UFactory/v8/v8_02/checkpoints/best_agent.pt --num_envs 512 --max_iterations 30000 --headless 
+
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Franka-Object-Tracking-Direct-v0 --num_envs 512 --max_iterations 10000 --headless
