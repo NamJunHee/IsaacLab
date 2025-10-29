@@ -68,7 +68,6 @@ object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
 training_mode = True
-
 foundationpose_mode = False
 
 camera_enable = False
@@ -89,18 +88,18 @@ add_episode_length = 200
 
 vel_ratio = 0.10 # max 2.61s
 
-obj_speed = 0.0005
-# obj_speed = 0.001
+# obj_speed = 0.0005
+obj_speed = 0.001
 # obj_speed = 0.0015
 # obj_speed = 0.002
 
 rand_pos_range = {
-    "x" : (  0.35, 0.70),
-    "y" : ( -0.3, 0.3),
-    "z" : (  0.08, 0.70),
+    "x" : (  0.25, 0.85),
+    "y" : ( -0.40, 0.40),
+    "z" : (  0.08, 0.80),
     
-    # "x" : (  0.35, 0.70),
-    # "y" : ( -0.3, 0.3),
+    # "x" : (  0.5, 0.70),
+    # "y" : ( -0.35, 0.35),
     # "z" : (  0.08, 0.7),
     
 }
@@ -114,24 +113,27 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(15.0),
         "position_align_margin" : 0.15,
         "pview_margin" : 0.15,
+        "fail_margin" : 0.3,
     },
     {
         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
-        "success_multiplier": 1.5, "failure_multiplier": 1.0, # 베이스라인보다 50% 성능 향상 시 성공
+        "success_multiplier": 1.5, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
         "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
-        "pview_margin" : 0.10
+        "pview_margin" : 0.10,
+        "fail_margin" : 0.25
     },
     {
         "reward_scales": {"pview": 1.5, "distance": 1.3, "vector_align": 1.2, "position_align": 1.2, "joint_penalty": 0.5},
-        "success_multiplier": 2.0, "failure_multiplier": 1.2, # 베이스라인보다 100% 성능 향상 시 성공
+        "success_multiplier": 2.0, "failure_multiplier": 1.2, 
         "y_range": (-0.35, 0.35),
         "distance_margin" : 0.02,
         "vector_align_margin" : math.radians(5.0),
         "position_align_margin" : 0.05,
-        "pview_margin" : 0.05
+        "pview_margin" : 0.05,
+        "fail_margin" : 0.2,
     },
 ]
 
@@ -337,15 +339,15 @@ workspace_zones = {
     "z": {"bottom": 0.30, "middle": 0.50,"top": 0.65}
 }
 
-x_weights = {"far": 1.0, "middle": 1.0, "close" : 1.0}
-z_weights = {"top": 1.0, "middle": 1.0, "bottom": 1.0}
+x_weights = {"far": 3.0, "middle": 0.0, "close" : 2.0}
+z_weights = {"top": 3.0, "middle": 0.0, "bottom": 2.0}
 
 zone_activation = {
     "top_close":    True,
     "top_middle":   True,
-    "top_far":      False, # << 이 값을 False로 바꾸면 제외됩니다.
+    "top_far":      True, # << 이 값을 False로 바꾸면 제외됩니다.
     "middle_close": True,
-    "middle_middle":True,
+    "middle_middle":False,
     "middle_far":   True,
     "bottom_close": True,
     "bottom_middle":True,
@@ -1553,14 +1555,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 하드 종료 조건 (Terminated) 정의
         if hasattr(self, 'is_pview_fail'):
             # PView 실패 시 즉시 종료 (True)
-            terminated = self.is_pview_fail
+            # terminated = self.is_pview_fail
             
             # k_c 팩터 (스케일) 가져오기
             # self.curriculum_factor_k_c는 (num_envs, 1)이므로, squeeze(-1)로 (num_envs)로 만듦
             k_c_factor = self.curriculum_factor_k_c.squeeze(-1)
             
-            # K_c 임계값 설정: k_c가 0.5 이상일 때만 하드 종료 조건을 활성화
-            k_c_threshold_mask = k_c_factor >= 0.5
+            # K_c 임계값 설정: k_c가 0.4 이상일 때만 하드 종료 조건을 활성화
+            k_c_threshold_mask = k_c_factor >= 0.4
             
             # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
             # k_c가 충분히 높을 때만 is_pview_fail에 의해 종료됨
@@ -1628,9 +1630,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
         )
 
+        levels = self.current_reward_level
+        fail_margin = torch.tensor([reward_curriculum_levels[l.item()]["fail_margin"] for l in levels], device=self.device)
+        
         # 1. 시야 중심 이탈 마스크 (center_offset > margin)
         center_offset = torch.norm(self.box_pos_cam[:, [2, 1]], dim=-1)
-        out_of_fov_mask = center_offset > 0.3 # 마진보다 1.5배 벗어날 경우 실패로 간주
+        out_of_fov_mask = center_offset > fail_margin
 
         # 2. 물체가 카메라 뒤에 위치하는 마스크 (is_in_front_mask 반대)
         is_behind_mask = -self.box_pos_cam[:, 0] <= 0 
