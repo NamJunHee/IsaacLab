@@ -63,8 +63,8 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
     # CURRICULAR = "curricular"
-# object_move = ObjectMoveType.STATIC
-object_move = ObjectMoveType.LINEAR
+object_move = ObjectMoveType.STATIC
+# object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
 training_mode = True
@@ -339,15 +339,15 @@ workspace_zones = {
     "z": {"bottom": 0.30, "middle": 0.50,"top": 0.65}
 }
 
-x_weights = {"far": 3.0, "middle": 0.0, "close" : 2.0}
-z_weights = {"top": 3.0, "middle": 0.0, "bottom": 2.0}
+x_weights = {"far": 5.0, "middle": 1.0, "close" : 4.0}
+z_weights = {"top": 5.0, "middle": 1.0, "bottom": 4.0}
 
 zone_activation = {
     "top_close":    True,
     "top_middle":   True,
     "top_far":      True, # << 이 값을 False로 바꾸면 제외됩니다.
     "middle_close": True,
-    "middle_middle":False,
+    "middle_middle":True,
     "middle_far":   True,
     "bottom_close": True,
     "bottom_middle":True,
