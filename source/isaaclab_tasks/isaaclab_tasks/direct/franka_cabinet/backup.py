@@ -114,7 +114,7 @@ rand_pos_range = {
 
 reward_curriculum_levels = [
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.7, "speed_align": 0.00, "joint_penalty": 0.5},
+        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.01, "speed_align": 0.7, "joint_penalty": 0.5},
         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
         "y_range" : ( -0.35, 0.35),
         
@@ -838,7 +838,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.boundaries_z = torch.tensor([workspace_zones["z"]["middle"], workspace_zones["z"]["top"]], device=self.device)
         
         self.log_counter = 0
-        self.LOG_INTERVAL = 100  # 1번의 리셋 묶음마다 한 번씩 로그 출력
+        self.LOG_INTERVAL = 2  # 1번의 리셋 묶음마다 한 번씩 로그 출력
         
         # 성능 모니터링을 위한 버퍼
         self.episode_reward_buf = torch.zeros(self.num_envs, device=self.device)
@@ -1063,9 +1063,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # [추가] 이전 스텝의 물체 위치를 저장하여 속도 추정에 사용
         self.last_box_pos_w = torch.zeros((self.num_envs, 3), device=self.device)
-        
-        # [이 줄을 추가하세요] 속도 추정치도 클래스 변수로 초기화
-        self.estimated_box_vel_w = torch.zeros((self.num_envs, 3), device=self.device)
         
         if image_publish:
             
@@ -1459,113 +1456,55 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
             self._box.write_root_pose_to_sim(new_box_pose_circle)
         
-        # # 물체 위치 랜덤 선형 이동 --------------------------------------------------------------------------------------------------
-        # if object_move == ObjectMoveType.LINEAR:
-        #     distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
-            
-        #     if torch.any(distance_to_target < 0.01):
-        #         # levels = self.current_reward_level
-        #         # obj_speed = torch.tensor([reward_curriculum_levels[l.item()]["obj_speed"] for l in levels], device=self.device)
-                
-        #         # if obj_speed == 0.0015:
-        #         #     rand_speeds = (MAX_SPEED - MIN_SPEED) * torch.rand(self.num_envs, 1, device=self.device) + MIN_SPEED
-        #         #     obj_speed = rand_speeds
-                
-        #         # print("ojb_speed:", obj_speed)
-                
-        #         levels = self.current_reward_level
-                
-        #         obj_speed = torch.tensor([reward_curriculum_levels[l.item()]["obj_speed"] for l in levels], device=self.device)
-                
-        #         if torch.any(obj_speed == 0.0015): # <-- 이 라인을 수정
-        #             rand_speeds = (MAX_SPEED - MIN_SPEED) * torch.rand(self.num_envs, device=self.device) + MIN_SPEED
-        #             obj_speed[obj_speed == 0.0015] = rand_speeds[obj_speed == 0.0015]
-                
-        #         self.target_box_pos = torch.stack([
-        #         torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
-        #         torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
-        #         torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
-        #         ], dim = 1)
-
-        #         self.target_box_pos = self.target_box_pos + self.scene.env_origins
-
-        #         self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
-        #         self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
-
-        #         self.new_box_pos_rand = self.current_box_pos
-
-        #         direction = self.target_box_pos - self.current_box_pos
-        #         direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-                
-        #         # self.rand_pos_step = (direction / direction_norm * obj_speed)
-        #         self.rand_pos_step = (direction / direction_norm * obj_speed.unsqueeze(-1))
-
-        #     self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
-        #     new_box_rot_rand = self.current_box_rot 
-
-        #     if self.new_box_pos_rand is not None and new_box_rot_rand is not None:
-        #         new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim=-1)
-        #     else:
-        #         raise ValueError("self.new_box_pos_rand or new_box_rot_rand is None")
-            
-        #     self._box.write_root_pose_to_sim(new_box_pose_rand)
-        
         # 물체 위치 랜덤 선형 이동 --------------------------------------------------------------------------------------------------
         if object_move == ObjectMoveType.LINEAR:
-            # 1. 모든 환경에 대해 현재 위치에서 목표까지의 거리 계산
-            distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim=-1)
+            distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
             
-            # 2. 목표에 도달한 환경들의 마스크 생성 (True/False)
-            arrived_mask = (distance_to_target < 0.01)
-            num_arrived = torch.sum(arrived_mask) # 도달한 환경 수
-
-            # 3. 목표에 도달한 환경이 하나라도 있다면, *해당 환경들만* 새로운 목표와 속도를 설정
-            if num_arrived > 0:
-                # 3a. 도달한 환경들의 ID (인덱스)와 레벨 가져오기
-                arrived_env_ids = torch.where(arrived_mask)[0]
-                levels = self.current_reward_level[arrived_env_ids]
+            if torch.any(distance_to_target < 0.01):
+                # levels = self.current_reward_level
+                # obj_speed = torch.tensor([reward_curriculum_levels[l.item()]["obj_speed"] for l in levels], device=self.device)
                 
-                # 3b. 해당 환경들의 새로운 물체 속도 계산 (커리큘럼 기반)
+                # if obj_speed == 0.0015:
+                #     rand_speeds = (MAX_SPEED - MIN_SPEED) * torch.rand(self.num_envs, 1, device=self.device) + MIN_SPEED
+                #     obj_speed = rand_speeds
+                
+                # print("ojb_speed:", obj_speed)
+                
+                levels = self.current_reward_level
+                
                 obj_speed = torch.tensor([reward_curriculum_levels[l.item()]["obj_speed"] for l in levels], device=self.device)
                 
-                # 최고 레벨(0.0015) 속도 랜덤화 처리
-                level_max_speed_mask = (obj_speed == 0.0015)
-                if torch.any(level_max_speed_mask):
-                    num_random_speed = torch.sum(level_max_speed_mask)
-                    rand_speeds = (MAX_SPEED - MIN_SPEED) * torch.rand(num_random_speed, device=self.device) + MIN_SPEED
-                    obj_speed[level_max_speed_mask] = rand_speeds
+                if torch.any(obj_speed == 0.0015): # <-- 이 라인을 수정
+                    rand_speeds = (MAX_SPEED - MIN_SPEED) * torch.rand(self.num_envs, device=self.device) + MIN_SPEED
+                    obj_speed[obj_speed == 0.0015] = rand_speeds[obj_speed == 0.0015]
                 
-                # 3c. *도달한 환경들*의 새로운 목표 위치 생성 (개수: num_arrived)
-                new_target_pos_local = torch.stack([
-                    sample_uniform(rand_pos_range["x"][0], rand_pos_range["x"][1], num_arrived, self.device),
-                    sample_uniform(rand_pos_range["y"][0], rand_pos_range["y"][1], num_arrived, self.device),
-                    sample_uniform(rand_pos_range["z"][0], rand_pos_range["z"][1], num_arrived, self.device),
+                self.target_box_pos = torch.stack([
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
+                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
                 ], dim = 1)
-                new_target_pos_world = new_target_pos_local + self.scene.env_origins[arrived_env_ids]
-                
-                # 3d. *해당 환경들*의 목표 위치(target_box_pos)만 업데이트
-                self.target_box_pos[arrived_env_ids] = new_target_pos_world
 
-                # 3e. *해당 환경들*의 현재 위치(new_box_pos_rand)를 기준으로 새 방향과 속도(rand_pos_step) 계산
-                direction = self.target_box_pos[arrived_env_ids] - self.new_box_pos_rand[arrived_env_ids]
+                self.target_box_pos = self.target_box_pos + self.scene.env_origins
+
+                self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
+                self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+
+                self.new_box_pos_rand = self.current_box_pos
+
+                direction = self.target_box_pos - self.current_box_pos
                 direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
                 
-                # 3f. *해당 환경들*의 속도(rand_pos_step)만 업데이트
-                self.rand_pos_step[arrived_env_ids] = (direction / direction_norm * obj_speed.unsqueeze(-1))
-                
-                # 3g. *해당 환경들*의 회전값 업데이트 (현재 시뮬레이션 상태 따르기)
-                self.current_box_rot[arrived_env_ids] = self._box.data.body_link_quat_w[arrived_env_ids, 0, :]
+                # self.rand_pos_step = (direction / direction_norm * obj_speed)
+                self.rand_pos_step = (direction / direction_norm * obj_speed.unsqueeze(-1))
 
-            # 4. *모든* 환경에 대해 계산된 속도(rand_pos_step)를 현재 위치(new_box_pos_rand)에 더함
-            # (도달한 환경은 방금 계산된 새 속도가, 아닌 환경은 기존 속도가 더해짐)
             self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
-            
-            # 5. *모든* 환경의 물체 포즈를 시뮬레이션에 적용
-            # (회전은 self.current_box_rot를 계속 따라감)
             new_box_rot_rand = self.current_box_rot 
-            new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim=-1)
+
+            if self.new_box_pos_rand is not None and new_box_rot_rand is not None:
+                new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim=-1)
+            else:
+                raise ValueError("self.new_box_pos_rand or new_box_rot_rand is None")
             
-            # 6. 시뮬레이션에 최종 포즈 쓰기
             self._box.write_root_pose_to_sim(new_box_pose_rand)
         
     def _apply_action(self):
@@ -1671,12 +1610,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             k_c_factor = self.curriculum_factor_k_c.squeeze(-1)
             
             # K_c 임계값 설정: k_c가 0.4 이상일 때만 하드 종료 조건을 활성화
-            # k_c_threshold_mask = k_c_factor >= 0.4
+            k_c_threshold_mask = k_c_factor >= 0.4
             
             # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
             # k_c가 충분히 높을 때만 is_pview_fail에 의해 종료됨
             # print("is_pview_fail:", self.is_pview_fail)
-            terminated = self.is_pview_fail # & k_c_threshold_mask
+            terminated = self.is_pview_fail & k_c_threshold_mask
             
         else:
             # 초기화 전이거나 오류 발생 시 False (종료 안 함)
@@ -1822,19 +1761,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self.consecutive_failures_reward[demotion_env_ids] = 0
         
         self.current_reward_level.clamp_(min=0, max=self.max_reward_level)
-        
-        # --- [추가] 커리큘럼 레벨 로깅 ---
-        # _reset_idx가 호출될 때마다 카운터 증가 (리셋되는 환경 묶음 단위)
-        self.log_counter += 1
-        # print("log_counter :", self.log_counter)
-        
-        # LOG_INTERVAL (예: 100) 묶음마다 한 번씩 전체 환경의 평균 레벨 출력
-        if self.log_counter >= self.LOG_INTERVAL:
-            # self.current_reward_level은 (num_envs,) 크기의 텐서
-            avg_level = torch.mean(self.current_reward_level.float())
-            print(f"\n[Curriculum Log] Current Average Reward Level: {avg_level.item():.4f}\n")
-            self.log_counter = 0 # 카운터 초기화
-        # --- [여기까지 추가] ---
         
         # 에피소드 보상 버퍼 초기화
         self.episode_reward_buf[env_ids] = 0.0
@@ -2273,6 +2199,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.cfg.current_time = 0
         self._compute_intermediate_values(env_ids)
         
+        initial_box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx, :3].clone().detach() # <--- self.box_idx 사용
+        self.last_box_pos_w[env_ids] = initial_box_pos_world
+        
         super()._reset_idx(env_ids)
 
 
@@ -2334,7 +2263,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # --- [핵심] 위치 기반 속도 추정치 계산 (현실성 유지) ---
         # 1. 속도 추정: (현재 위치 - 이전 위치) / dt
-        self.estimated_box_vel_w[env_ids] = (box_pos_world - self.last_box_pos_w[env_ids]) / self.dt
+        self.estimated_box_vel_w = (box_pos_world - self.last_box_pos_w[env_ids]) / self.dt
         # ... (estimated_box_vel_w 저장 및 print 유지) ...
         
         # 3. 다음 스텝을 위해 이전 위치 업데이트
@@ -2478,8 +2407,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             torch.pow(pview_reward, pview_reward_scale) *
             torch.pow(distance_reward, distance_reward_scale) *
             torch.pow(vector_alignment_reward, vector_align_reward_scale) *
-            torch.pow(position_alignment_reward, position_align_reward_scale)  
-            * torch.pow(speed_alignment_reward, speed_align_reward_scale)
+            torch.pow(position_alignment_reward, position_align_reward_scale) * 
+            torch.pow(speed_alignment_reward, speed_align_reward_scale)
         )
         
         # [최종] 곱셈 보상 결과에 자세 페널티를 덧셈으로 감산합니다.
@@ -2510,4 +2439,5 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         return global_franka_rot, global_franka_pos, global_box_rot, global_box_pos
         
-    
+        
+        
