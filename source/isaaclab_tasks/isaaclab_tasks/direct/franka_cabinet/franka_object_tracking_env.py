@@ -63,8 +63,8 @@ class ObjectMoveType(Enum):
     CIRCLE = "circle"
     LINEAR = "linear"
     # CURRICULAR = "curricular"
-object_move = ObjectMoveType.STATIC
-# object_move = ObjectMoveType.LINEAR
+# object_move = ObjectMoveType.STATIC
+object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
 training_mode = True
@@ -86,11 +86,11 @@ add_episode_length = 200
 # add_episode_length = -930
 # add_episode_length = -500
 
-vel_ratio = 0.10 # max 2.61s
+vel_ratio = 1.0
 
 # obj_speed = 0.0005
-obj_speed = 0.001
-# obj_speed = 0.0015
+# obj_speed = 0.001
+obj_speed = 0.0015
 # obj_speed = 0.002
 
 rand_pos_range = {
@@ -109,6 +109,7 @@ reward_curriculum_levels = [
         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.7, "joint_penalty": 0.5},
         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
         "y_range" : ( -0.35, 0.35),
+        
         "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(15.0),
         "position_align_margin" : 0.15,
@@ -116,9 +117,10 @@ reward_curriculum_levels = [
         "fail_margin" : 0.3,
     },
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
+        "reward_scales": {"pview": 1.0, "distance": 1.2, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
         "success_multiplier": 1.5, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
+        
         "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
@@ -129,6 +131,7 @@ reward_curriculum_levels = [
         "reward_scales": {"pview": 1.5, "distance": 1.3, "vector_align": 1.2, "position_align": 1.2, "joint_penalty": 0.5},
         "success_multiplier": 2.0, "failure_multiplier": 1.2, 
         "y_range": (-0.35, 0.35),
+        
         "distance_margin" : 0.02,
         "vector_align_margin" : math.radians(5.0),
         "position_align_margin" : 0.05,
@@ -501,11 +504,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         actuators={
             "ufactory_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3"],
-                effort_limit=87.0,
+                effort_limit = 87.0,
                 
-                velocity_limit=2.61 * vel_ratio,
-                stiffness=2000.0,
-                damping=100.0,
+                velocity_limit = 2.61 * vel_ratio,
+                stiffness = 2000.0,
+                damping = 100.0,
                 
                 # velocity_limit=0.8,
                 # stiffness=80.0,
@@ -513,11 +516,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["joint4", "joint5", "joint6"],
-                effort_limit=87.0,
+                effort_limit = 87.0,
                 
-                velocity_limit=2.61 * vel_ratio,
-                stiffness=2000.0,
-                damping=100.0,
+                velocity_limit = 2.61 * vel_ratio,
+                stiffness = 2000.0,
+                damping = 100.0,
                 
                 # velocity_limit=0.8,
                 # stiffness=80.0,
@@ -769,8 +772,12 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     
     # action_scale = 7.5
     # dof_velocity_scale = 0.1
-    action_scale = 2.0
-    dof_velocity_scale = 0.05
+    
+    # action_scale = 2.0
+    # dof_velocity_scale = 0.05
+    
+    action_scale = 4.0
+    dof_velocity_scale = 0.07
 
     # reward scales
     # dist_reward_scale = 1.5
@@ -824,23 +831,46 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.is_calibrating = True  # 현재 성능 측정 단계인지 여부
         self.CALIBRATION_RESETS = 100  # 기준치 계산에 사용할 초기 에피소드 횟수
         self.calibration_rewards = [] # 초기 보상을 저장할 리스트
-        self.baseline_avg_reward = 0.0 # 계산된 기준 보상값
+        self.baseline_avg_reward = 0.20 # 계산된 기준 보상값
 
         # 2. 보상 커리큘럼을 위한 독립적인 상태 변수들
         self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.consecutive_successes_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.consecutive_failures_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.PROMOTION_COUNT_REWARD = 15
-        self.DEMOTION_COUNT_REWARD = 10
+        self.PROMOTION_COUNT_REWARD = 500
+        self.DEMOTION_COUNT_REWARD = 50
         
         self.episode_init_joint_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         
-        self.curriculum_factor_k0 = 0.3  # k_c의 초기값 (논문 권장값)
+        self.curriculum_factor_k0 = 0.25  # k_c의 초기값 (논문 권장값)
         self.curriculum_factor_kd = 0.997 # k_c의 진전 속도
         
         # k_c (커리큘럼 계수) 상태 변수. 모든 환경이 k_c의 초기값에서 시작.
         # k_c는 (num_envs, 1) 형태로 저장됨
         self.curriculum_factor_k_c = torch.full((self.num_envs, 1), self.curriculum_factor_k0, device=self.device)
+        
+        # [추가] ------------------------------------------------------------------
+        # 물체 이동 상태를 정의하는 상수
+        self.MOVE_STATE_STATIC = 0
+        self.MOVE_STATE_LINEAR = 1
+
+        # 4096개 환경의 이동 상태를 개별적으로 저장하는 텐서 (0 = STATIC, 1 = LINEAR)
+        self.object_move_state = torch.full(
+            (self.num_envs,), self.MOVE_STATE_STATIC, dtype=torch.long, device=self.device
+        )
+        
+        # 4096개 환경의 물체 이동 속도를 개별적으로 저장하는 텐서
+        self.obj_speed = torch.zeros(
+            (self.num_envs,), device=self.device, dtype=torch.float32
+        )
+        
+        # [추가] ------------------------------------------------------------------
+        # 4096개 환경의 액션 스케일(반응 속도)을 개별적으로 저장하는 텐서
+        # Level 0의 기본값(낮은 속도)으로 초기화합니다.
+        self.action_scale_tensor = torch.full(
+            (self.num_envs,), 2.0, device=self.device, dtype=torch.float32
+        )
+        # ------------------------------------------------------------------------
         
         if robot_type == RobotType.FRANKA:
             self.joint_names = [
@@ -1013,10 +1043,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self.box_pos_cam = torch.zeros((self.num_envs, 4), device=self.device)
         
-        self.fixed_z = 0.055
+        # self.fixed_z = 0.055
         
-        self.current_box_pos = None
-        self.current_box_rot = None
+        # self.current_box_pos = None
+        # self.current_box_rot = None
         
         self.target_box_pos = torch.stack([
                 torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
@@ -1025,9 +1055,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             ], dim = 1)
         
         self.target_box_pos = self.target_box_pos + self.scene.env_origins
-        # self.rand_pos_step = 0
         self.new_box_pos_rand = torch.zeros((self.num_envs, 3), device=self.device)
+        
         self.current_box_rot = torch.zeros((self.num_envs, 4), device=self.device)
+        self.current_box_pos = torch.zeros((self.num_envs, 3), device=self.device)
+
+        self.rand_pos = torch.zeros((self.num_envs, 3), device=self.device)
         self.rand_pos_step = torch.zeros((self.num_envs, 3), device=self.device)
         
         rclpy.init()
@@ -1397,7 +1430,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         
         self.actions = actions.clone().clamp(-1.0, 1.0)
-        targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
+        
+        # [수정 시작] ---------------------------------------------------------
+        # (self.num_envs,) 텐서를 (self.num_envs, 1)로 브로드캐스팅
+        current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
+
+        # 글로벌 self.cfg.action_scale 대신 개별 텐서(current_action_scale)를 사용
+        targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * current_action_scale
+        # [수정 끝] -----------------------------------------------------------
+        
+        # targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
         self.cfg.current_time = self.cfg.current_time + self.dt
         current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
@@ -1410,54 +1452,56 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 rclpy.spin_once(self.node, timeout_sec=0.001)
                 self.last_publish_time = 0.0
 
-        # 물체 원 운동 (실제 운동 제어 코드)-------------------------------------------------------------------------------------------
-        if object_move == ObjectMoveType.CIRCLE:
-            R = 0.10
-            omega = 0.7 # Speed
+        # 물체 위치 랜덤 선형 이동 (Per-Environment)
+        # 1. LINEAR 상태인 환경의 인덱스를 찾습니다.
+        linear_move_mask = (self.object_move_state == self.MOVE_STATE_LINEAR)
+        linear_env_ids = torch.where(linear_move_mask)[0]
 
-            offset_x = R * torch.cos(omega * current_time) - 0.35
-            offset_y = R * torch.sin(omega * current_time) 
-            offset_z = 0.055
-
-            offset_pos = torch.tensor([offset_x, offset_y, offset_z], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-
-            new_box_pos_circle = self.box_center + offset_pos
-            new_box_rot_circle = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
-
-            new_box_pose_circle = torch.cat([new_box_pos_circle, new_box_rot_circle], dim = -1)
-
-            self._box.write_root_pose_to_sim(new_box_pose_circle)
-        
-        # 물체 위치 랜덤 선형 이동 --------------------------------------------------------------------------------------------------
-        if object_move == ObjectMoveType.LINEAR:
-            distance_to_target = torch.norm(self.target_box_pos - self.new_box_pos_rand, p=2, dim = -1)
-            if torch.any(distance_to_target < 0.01):
-                self.target_box_pos = torch.stack([
-                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
-                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
-                torch.rand(self.num_envs, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
-                ], dim = 1)
-
-                self.target_box_pos = self.target_box_pos + self.scene.env_origins
-
-                self.current_box_pos = self._box.data.body_link_pos_w[:, 0, :].clone()
-                self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
-
-                self.new_box_pos_rand = self.current_box_pos
-
-                direction = self.target_box_pos - self.current_box_pos
-                direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-                self.rand_pos_step = (direction / direction_norm * obj_speed)
-
-            self.new_box_pos_rand = self.new_box_pos_rand + self.rand_pos_step
-            new_box_rot_rand = self.current_box_rot 
-
-            if self.new_box_pos_rand is not None and new_box_rot_rand is not None:
-                new_box_pose_rand = torch.cat([self.new_box_pos_rand, new_box_rot_rand], dim=-1)
-            else:
-                raise ValueError("self.new_box_pos_rand or new_box_rot_rand is None")
+        if len(linear_env_ids) > 0:
+            # 2. LINEAR 환경들의 현재 위치와 목표 위치를 가져옵니다.
+            current_pos = self.new_box_pos_rand[linear_env_ids]
+            target_pos = self.target_box_pos[linear_env_ids]
             
-            self._box.write_root_pose_to_sim(new_box_pose_rand)
+            # 3. 목표에 도달했는지 확인합니다.
+            distance_to_target = torch.norm(target_pos - current_pos, p=2, dim=-1)
+            reached_target_mask = (distance_to_target < 0.01)
+
+            # 4. 한 환경이라도 목표에 도달했다면, 해당 환경들의 목표를 재설정합니다.
+            if torch.any(reached_target_mask):
+                # 4.1. 목표에 도달한 환경들의 *전역* 인덱스를 가져옵니다.
+                env_ids_to_update = linear_env_ids[reached_target_mask]
+                num_to_update = len(env_ids_to_update)
+
+                # 4.2. 새로운 목표 위치를 생성합니다. (기존 로직 활용)
+                new_targets = torch.stack([
+                    torch.rand(num_to_update, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0],
+                    torch.rand(num_to_update, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0],
+                    torch.rand(num_to_update, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0],
+                ], dim = 1)
+                
+                # 4.3. 해당 환경들의 목표(target_box_pos)와 현재 상태(current_box_pos 등)를 업데이트합니다.
+                self.target_box_pos[env_ids_to_update] = new_targets + self.scene.env_origins[env_ids_to_update]
+                self.current_box_pos[env_ids_to_update] = self._box.data.body_link_pos_w[env_ids_to_update, 0, :]
+                self.current_box_rot[env_ids_to_update] = self._box.data.body_link_quat_w[env_ids_to_update, 0, :]
+                self.new_box_pos_rand[env_ids_to_update] = self.current_box_pos[env_ids_to_update]
+
+                # 4.4. *모든* LINEAR 환경에 대해 이동 스텝을 다시 계산합니다. 
+                direction = self.target_box_pos[linear_env_ids] - self.new_box_pos_rand[linear_env_ids]
+                direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+                
+                # [핵심] 전역 obj_speed 대신, 각 환경의 개별 속도(self.obj_speed)를 사용합니다.
+                speed = self.obj_speed[linear_env_ids].unsqueeze(-1) # (N_linear, 1)
+                self.rand_pos_step[linear_env_ids] = (direction / direction_norm * speed)
+
+            # 5. *모든* LINEAR 환경의 위치를 이동 스텝만큼 업데이트합니다.
+            self.new_box_pos_rand[linear_env_ids] += self.rand_pos_step[linear_env_ids]
+            
+            # 6. 시뮬레이션에 적용합니다.
+            new_box_rot_rand = self.current_box_rot[linear_env_ids] 
+            new_box_pose_rand = torch.cat([self.new_box_pos_rand[linear_env_ids], new_box_rot_rand], dim=-1)
+            
+            # env_ids 파라미터를 사용하여 LINEAR 환경들만 업데이트합니다.
+            self._box.write_root_pose_to_sim(new_box_pose_rand, env_ids=linear_env_ids)
         
     def _apply_action(self):
         
@@ -1659,93 +1703,669 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     
         return reward
 
+    def _perform_static_reset(self, env_ids: torch.Tensor):        
+        
+        num_resets = len(env_ids)
+        if num_resets == 0:
+            return
+            
+        final_weights = []
+        for key in zone_keys:
+            if not zone_activation.get(key, False): # .get()으로 안전하게 접근
+                final_weights.append(0.0)
+                continue
+            z_part, x_part = key.split('_')
+            combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
+            final_weights.append(combined_weight)
+        
+        weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
+        selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
+
+        x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
+        x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
+        z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
+        z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
+
+        x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
+        z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
+
+        current_levels = self.current_reward_level[env_ids]
+        y_pos = torch.zeros(num_resets, device=self.device)
+        
+        for level_idx in range(self.max_reward_level + 1):
+            level_mask = (current_levels == level_idx)
+            num_in_level = torch.sum(level_mask)
+            
+            if num_in_level > 0:
+                y_range = reward_curriculum_levels[level_idx]["y_range"]
+                y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
+
+        # [수정] self.rand_pos[env_ids] 에 할당
+        self.rand_pos[env_ids] = torch.stack([x_pos, y_pos, z_pos], dim=1)
+        rand_reset_pos = self.rand_pos[env_ids] + self.scene.env_origins[env_ids]
+        
+        random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi
+        rand_reset_rot = torch.stack([
+            torch.cos(random_angles / 2),
+            torch.zeros(num_resets, device=self.device),
+            torch.zeros(num_resets, device=self.device),
+            torch.sin(random_angles / 2)  
+        ], dim=1)
+        
+        rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+        zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+        
+        self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids)
+        self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids)
+        
+        if training_mode == True:
+            joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+            joint1_idx = self._robot.find_joints(["joint1"])[0]
+            
+            YAW_CANDIDATE_ANGLES = { 15.0: math.radians(15.0), 45.0: math.radians(45.0), 75.0: math.radians(75.0) }
+            ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
+            
+            for i, env_id in enumerate(env_ids):
+                object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
+                obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
+                        
+                if obj_x >= workspace_zones["x"]["far"]: x_zone = "far"
+                elif obj_x >= workspace_zones["x"]["middle"]: x_zone = "middle"
+                else: x_zone = "close"
+                    
+                if obj_z >= workspace_zones["z"]["top"]: z_zone = "top"
+                elif obj_z >= workspace_zones["z"]["bottom"]: z_zone = "middle"
+                else: z_zone = "bottom"
+                    
+                zone_key = f"{z_zone}_{x_zone}"
+                target_pose_dict = pose_candidate[zone_key]
+                
+                for joint_name, pos in target_pose_dict.items():
+                    if joint_name != "joint1":
+                        joint_idx = self._robot.find_joints(joint_name)[0]
+                        joint_pos[i, joint_idx] = pos
+                        
+                target_yaw_rad = torch.atan2(obj_y, obj_x)
+                abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
+
+                if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: target_angle_deg = 15.0
+                elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: target_angle_deg = 45.0
+                else: target_angle_deg = 75.0
+
+                final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
+                joint_pos[i, joint1_idx] = final_yaw_rad
+                
+            joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+            joint_vel = torch.zeros_like(joint_pos)
+            self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+            self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            
+            self.episode_init_joint_pos[env_ids] = joint_pos
+
+    def _perform_linear_reset(self, env_ids: torch.Tensor):
+        
+        num_resets = len(env_ids)
+        if num_resets == 0:
+            return
+        
+        # 1. 로봇 및 물체 위치 재설정 (STATIC 리셋과 거의 동일)
+        final_weights = []
+        for key in zone_keys:
+            if not zone_activation.get(key, False):
+                final_weights.append(0.0)
+                continue
+            z_part, x_part = key.split('_')
+            combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
+            final_weights.append(combined_weight)
+        
+        weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
+        selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
+
+        x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
+        x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
+        z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
+        z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
+
+        x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
+        z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
+
+        current_levels = self.current_reward_level[env_ids]
+        y_pos = torch.zeros(num_resets, device=self.device)
+        
+        for level_idx in range(self.max_reward_level + 1):
+            level_mask = (current_levels == level_idx)
+            num_in_level = torch.sum(level_mask)
+            
+            if num_in_level > 0:
+                y_range = reward_curriculum_levels[level_idx]["y_range"]
+                y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
+
+        # [수정] self.rand_pos[env_ids] 에 할당
+        self.rand_pos[env_ids] = torch.stack([x_pos, y_pos, z_pos], dim=1)
+        rand_reset_pos = self.rand_pos[env_ids] + self.scene.env_origins[env_ids]
+        
+        random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi
+        rand_reset_rot = torch.stack([
+            torch.cos(random_angles / 2),
+            torch.zeros(num_resets, device=self.device),
+            torch.zeros(num_resets, device=self.device),
+            torch.sin(random_angles / 2)  
+        ], dim=1)
+        
+        rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+        zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+        
+        self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids)
+        self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids)
+
+        # 2. LINEAR 이동을 위한 상태 초기화
+        self.new_box_pos_rand[env_ids] = self._box.data.body_link_pos_w[env_ids, 0, :]
+        self.current_box_rot[env_ids] = self._box.data.body_link_quat_w[env_ids, 0, :]
+
+        # 2.2. 목표 위치를 *다른* 랜덤 위치로 새로 생성
+        new_targets_x = torch.rand(num_resets, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0]
+        new_targets_y = torch.rand(num_resets, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0]
+        new_targets_z = torch.rand(num_resets, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0]
+        new_targets = torch.stack([new_targets_x, new_targets_y, new_targets_z], dim = 1)
+        
+        self.target_box_pos[env_ids] = new_targets + self.scene.env_origins[env_ids]
+
+        # 2.3. 이동 방향 및 스텝 계산
+        direction = self.target_box_pos[env_ids] - self.new_box_pos_rand[env_ids]
+        direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+        
+        # [핵심] 개별 속도를 사용합니다.
+        speed = self.obj_speed[env_ids].unsqueeze(-1)
+        self.rand_pos_step[env_ids] = (direction / direction_norm * speed)
+
+        # 3. 로봇 자세 초기화 (STATIC 리셋과 동일)
+        if training_mode == True:
+            joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+            joint1_idx = self._robot.find_joints(["joint1"])[0]
+            
+            YAW_CANDIDATE_ANGLES = { 15.0: math.radians(15.0), 45.0: math.radians(45.0), 75.0: math.radians(75.0) }
+            ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
+            
+            for i, env_id in enumerate(env_ids):
+                object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
+                obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
+                        
+                if obj_x >= workspace_zones["x"]["far"]: x_zone = "far"
+                elif obj_x >= workspace_zones["x"]["middle"]: x_zone = "middle"
+                else: x_zone = "close"
+                    
+                if obj_z >= workspace_zones["z"]["top"]: z_zone = "top"
+                elif obj_z >= workspace_zones["z"]["bottom"]: z_zone = "middle"
+                else: z_zone = "bottom"
+                    
+                zone_key = f"{z_zone}_{x_zone}"
+                target_pose_dict = pose_candidate[zone_key]
+                
+                for joint_name, pos in target_pose_dict.items():
+                    if joint_name != "joint1":
+                        joint_idx = self._robot.find_joints(joint_name)[0]
+                        joint_pos[i, joint_idx] = pos
+                        
+                target_yaw_rad = torch.atan2(obj_y, obj_x)
+                abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
+
+                if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: target_angle_deg = 15.0
+                elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: target_angle_deg = 45.0
+                else: target_angle_deg = 75.0
+
+                final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
+                joint_pos[i, joint1_idx] = final_yaw_rad
+                
+            joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+            joint_vel = torch.zeros_like(joint_pos)
+            self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+            self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            
+            self.episode_init_joint_pos[env_ids] = joint_pos
+    # ------------------------------------------------------------------------
+    
+    # def _reset_idx(self, env_ids: torch.Tensor | None):
+        
+    #     avg_reward = self.episode_reward_buf[env_ids] / self.episode_length_buf[env_ids]
+
+    #     # 전역 변수 object_move에 접근하기 위해 global 키워드를 사용합니다.
+    #     global object_move
+        
+    #     # 현재 배치에서 리셋된 환경들의 평균 보상의 평균값을 계산합니다.
+    #     mean_avg_reward = torch.mean(avg_reward).item()
+
+    #     # 현재 모드가 STATIC이고, 평균 보상이 0.2를 초과했는지 확인합니다.
+    #     if object_move == ObjectMoveType.STATIC and mean_avg_reward > 0.25:
+    #         object_move = ObjectMoveType.LINEAR  # 전역 이동 모드를 LINEAR로 변경
+    #         print("=" * 70)
+    #         print(f"** TASK CURRICULUM: 평균 보상 ({mean_avg_reward:.4f})이 0.2를 초과했습니다. **")
+    #         print("** ObjectMoveType.STATIC 에서 ObjectMoveType.LINEAR 로 변경합니다. **")
+    #         print("=" * 70)        
+        
+    #     if self.is_calibrating and training_mode:
+    #         self.calibration_rewards.extend(avg_reward.cpu().numpy())
+            
+    #         if len(self.calibration_rewards) >= self.CALIBRATION_RESETS:
+    #             # N번의 데이터가 쌓이면, 베이스라인 성능을 계산하고 측정 단계를 종료
+    #             self.baseline_avg_reward = np.mean(self.calibration_rewards)
+    #             self.is_calibrating = False
+    #             print("="*50)
+    #             print(f"** Curriculum Calibration Finished **")
+    #             print(f"Baseline Average Reward: {self.baseline_avg_reward:.4f}")
+    #             print(f"Level 0 Success Threshold will be: {self.baseline_avg_reward * reward_curriculum_levels[0]['success_multiplier']:.4f}")
+    #             print("="*50)
+        
+    #     else:
+    #         current_reward_levels = self.current_reward_level[env_ids]
+
+    #         # 2. 새로운 보상 커리큘럼의 임계값 가져오기
+    #         success_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["success_multiplier"] for l in current_reward_levels], device=self.device)
+    #         failure_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["failure_multiplier"] for l in current_reward_levels], device=self.device)
+            
+    #         success_thresholds_reward = self.baseline_avg_reward * success_multipliers
+    #         failure_thresholds_reward = self.baseline_avg_reward * failure_multipliers 
+            
+    #         success_mask_reward = avg_reward >= success_thresholds_reward
+    #         failure_mask_reward = avg_reward < failure_thresholds_reward        
+
+    #         # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
+    #         self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
+    #         self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
+    #         self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
+    #         self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())       
+
+    #         # 4. 보상 커리큘럼 레벨 승급/강등 처리
+    #         promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
+    #         if torch.any(promotion_candidate_mask_reward):
+    #             promotion_env_ids = env_ids[promotion_candidate_mask_reward]
+    #             self.current_reward_level[promotion_env_ids] = (self.current_reward_level[promotion_env_ids] + 1).clamp(max=self.max_reward_level)
+    #             self.consecutive_successes_reward[promotion_env_ids] = 0        
+
+    #         demotion_candidate_mask_reward = self.consecutive_failures_reward[env_ids] >= self.DEMOTION_COUNT_REWARD
+    #         if torch.any(demotion_candidate_mask_reward):
+    #             demotion_env_ids = env_ids[demotion_candidate_mask_reward]
+    #             self.current_reward_level[demotion_env_ids] = (self.current_reward_level[demotion_env_ids] - 1).clamp(min=0)
+    #             self.consecutive_failures_reward[demotion_env_ids] = 0
+        
+    #     # 에피소드 보상 버퍼 초기화
+    #     self.episode_reward_buf[env_ids] = 0.0
+                
+    #     # robot state ---------------------------------------------------------------------------------
+    #     if training_mode:
+    #         joint_pos = self._robot.data.default_joint_pos[env_ids]
+            
+    #         # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
+    #         #     -0.125,
+    #         #     0.125,
+    #         #     (len(env_ids), self._robot.num_joints),
+    #         #     self.device,
+    #         # )
+            
+    #         # joint_pos = torch.zeros((len(env_ids), self._robot.num_joints), device=self.device)
+            
+    #         for i, name in enumerate(self.joint_names):
+    #             joint_idx = self._robot.find_joints([name])[0]
+    #             joint_pos[:, joint_idx] = self.joint_init_values[i]
+            
+    #         joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+    #         joint_vel = torch.zeros_like(joint_pos)
+    #         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+    #         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            
+    #         ## 251023_kc
+    #         new_k_c = torch.pow(self.curriculum_factor_k_c[env_ids], self.curriculum_factor_kd)
+    #         self.curriculum_factor_k_c[env_ids] = new_k_c
+        
+    #         # k_c가 1.0을 초과하지 않도록 클램핑
+    #         self.curriculum_factor_k_c.clamp_(max=1.0)    
+        
+    #     else:
+    #         # 최초 한 번만 실행
+    #         if not hasattr(self, "_initialized"):
+    #             self._initialized = False
+
+    #         if not self._initialized:
+    #             joint_pos = self._robot.data.default_joint_pos[env_ids] 
+                
+    #             joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+    #             joint_vel = torch.zeros_like(joint_pos)
+    #             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+    #             self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    #             self._initialized = True
+        
+    #     # 물체 원 운동 (원 운동 시 환경 초기화 코드)------------------------------------------------------------------------------------------------------------  
+    #     if object_move == ObjectMoveType.CIRCLE:
+    #         reset_pos = self.box_center
+    #         reset_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
+    #         reset_box_pose = torch.cat([reset_pos, reset_rot], dim = -1)
+    #         self._box.write_root_pose_to_sim(reset_box_pose)
+        
+    #     # 물체 위치 랜덤 생성 (Static) (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
+    #     if object_move == ObjectMoveType.STATIC:
+    #         num_resets = len(env_ids)
+            
+    #         final_weights = []
+    #         for key in zone_keys:
+    #             if not zone_activation.get(key, False): # .get()으로 안전하게 접근
+    #                 final_weights.append(0.0)
+    #                 continue
+    #             z_part, x_part = key.split('_')
+    #             combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
+    #             final_weights.append(combined_weight)
+            
+    #         weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
+
+    #         selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
+
+    #         x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
+    #         x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
+    #         z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
+    #         z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
+
+    #         x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
+    #         z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
+
+    #         current_levels = self.current_reward_level[env_ids]
+            
+    #         y_pos = torch.zeros(num_resets, device=self.device)
+            
+    #         for level_idx in range(self.max_reward_level + 1):
+    #             level_mask = (current_levels == level_idx)
+    #             num_in_level = torch.sum(level_mask)
+                
+    #             if num_in_level > 0:
+    #                 y_range = reward_curriculum_levels[level_idx]["y_range"]
+    #                 y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
+
+    #         self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
+            
+    #         ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
+    #         # rand_reset_pos = self.rand_pos + self.scene.env_origins
+    #         rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
+            
+    #         # random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+    #         # rand_reset_rot = torch.stack([
+    #         #     torch.cos(random_angles / 2),
+    #         #     torch.zeros(self.num_envs, device=self.device),
+    #         #     torch.zeros(self.num_envs, device=self.device),
+    #         #     torch.sin(random_angles / 2)  
+    #         # ], dim=1)
+            
+    #         # rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+    #         # zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+            
+    #         # self._box.write_root_pose_to_sim(rand_reset_box_pose)
+    #         # self._box.write_root_velocity_to_sim(zero_root_velocity)
+            
+    #         # 1. rand_reset_rot을 num_resets 크기로 생성
+    #         random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            
+    #         rand_reset_rot = torch.stack([
+    #             torch.cos(random_angles / 2),
+    #             torch.zeros(num_resets, device=self.device), # 크기: num_resets
+    #             torch.zeros(num_resets, device=self.device), # 크기: num_resets
+    #             torch.sin(random_angles / 2)  
+    #         ], dim=1)
+            
+    #         # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
+    #         rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+            
+    #         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+            
+    #         # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
+    #         self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
+    #         self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
+            
+    #         if training_mode == True:
+    #             joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+    #             joint1_idx = self._robot.find_joints(["joint1"])[0]
+                
+    #             YAW_CANDIDATE_ANGLES = {
+    #                 15.0: math.radians(15.0),
+    #                 45.0: math.radians(45.0),
+    #                 75.0: math.radians(75.0),
+    #             }
+                
+    #             ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
+                
+    #             for i, env_id in enumerate(env_ids):
+    #                 object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
+    #                 obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
+                            
+    #                 if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
+    #                     x_zone = "far"
+    #                 elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
+    #                     x_zone = "middle"
+    #                 else:
+    #                     x_zone = "close"
+                        
+    #                 if obj_z >= workspace_zones["z"]["top"]:
+    #                     z_zone = "top"
+    #                 elif obj_z >= workspace_zones["z"]["bottom"]:
+    #                     z_zone = "middle"
+    #                 else:
+    #                     z_zone = "bottom"
+                        
+    #                 zone_key = f"{z_zone}_{x_zone}"
+    #                 target_pose_dict = pose_candidate[zone_key]
+                    
+    #                 for joint_name, pos in target_pose_dict.items():
+    #                     if joint_name != "joint1": # Joint 1 제외
+    #                         joint_idx = self._robot.find_joints(joint_name)[0]
+    #                         joint_pos[i, joint_idx] = pos
+                            
+    #                 # 물체 위치의 Yaw 각도 (라디안) 계산
+    #                 target_yaw_rad = torch.atan2(obj_y, obj_x)
+    #                 # 각도를 Degree로 변환하고 절대값 취함 (0~180도)
+    #                 abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
+
+    #                 # 6개 구역 중 어느 구역에 속하는지 판단하여 목표 각도 설정
+    #                 if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: # 0 ~ 30도
+    #                     target_angle_deg = 15.0
+    #                 elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: # 30 ~ 60도
+    #                     target_angle_deg = 45.0
+    #                 else: # 60 ~ 90도 (혹은 그 이상)
+    #                     target_angle_deg = 75.0
+
+    #                 # 최종 목표 각도 (부호 복원: obj_y의 부호를 따라감)
+    #                 final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
+                    
+    #                 # Joint 1 초기값 최종 설정
+    #                 joint_pos[i, joint1_idx] = final_yaw_rad
+                    
+    #             # Joint 1의 클램핑은 Joint 1의 인덱스를 사용하여 수행
+    #             joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+
+    #             joint_vel = torch.zeros_like(joint_pos)
+    #             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+    #             self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+                
+    #             self.episode_init_joint_pos[env_ids] = joint_pos
+
+    #     # 물체 위치 선형 랜덤 이동 (Linear) ---------------------------------------------------------------
+    #     if object_move == ObjectMoveType.LINEAR:
+        
+    #         self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
+    #         self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
+
+    #         # self.new_box_pos_rand = self.current_box_pos
+    #         # self.target_box_pos = self.rand_pos
+
+    #         direction = self.target_box_pos - self.new_box_pos_rand
+    #         direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+    #         self.rand_pos_step = (direction / direction_norm * obj_speed)
+            
+    #         ## 로봇 자세 초기화 설정
+    #         num_resets = len(env_ids)
+            
+    #         final_weights = []
+    #         for key in zone_keys:
+    #             if not zone_activation.get(key, False): # .get()으로 안전하게 접근
+    #                 final_weights.append(0.0)
+    #                 continue
+    #             z_part, x_part = key.split('_')
+    #             combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
+    #             final_weights.append(combined_weight)
+            
+    #         weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
+
+    #         selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
+
+    #         x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
+    #         x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
+    #         z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
+    #         z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
+
+    #         x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
+    #         z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
+
+    #         current_levels = self.current_reward_level[env_ids]
+            
+    #         y_pos = torch.zeros(num_resets, device=self.device)
+            
+    #         for level_idx in range(self.max_reward_level + 1):
+    #             level_mask = (current_levels == level_idx)
+    #             num_in_level = torch.sum(level_mask)
+                
+    #             if num_in_level > 0:
+    #                 y_range = reward_curriculum_levels[level_idx]["y_range"]
+    #                 y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
+
+    #         self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
+            
+    #         ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
+    #         rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
+
+    #         # 1. rand_reset_rot을 num_resets 크기로 생성
+    #         random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
+            
+    #         rand_reset_rot = torch.stack([
+    #             torch.cos(random_angles / 2),
+    #             torch.zeros(num_resets, device=self.device), # 크기: num_resets
+    #             torch.zeros(num_resets, device=self.device), # 크기: num_resets
+    #             torch.sin(random_angles / 2)  
+    #         ], dim=1)
+            
+    #         # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
+    #         rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
+            
+    #         zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
+            
+    #         # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
+    #         self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
+    #         self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
+            
+    #         if training_mode == True:
+    #             joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+    #             joint1_idx = self._robot.find_joints(["joint1"])[0]
+                
+    #             YAW_CANDIDATE_ANGLES = {
+    #                 15.0: math.radians(15.0),
+    #                 45.0: math.radians(45.0),
+    #                 75.0: math.radians(75.0),
+    #             }
+                
+    #             ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
+                
+    #             for i, env_id in enumerate(env_ids):
+    #                 object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
+    #                 obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
+                            
+    #                 if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
+    #                     x_zone = "far"
+    #                 elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
+    #                     x_zone = "middle"
+    #                 else:
+    #                     x_zone = "close"
+                        
+    #                 if obj_z >= workspace_zones["z"]["top"]:
+    #                     z_zone = "top"
+    #                 elif obj_z >= workspace_zones["z"]["bottom"]:
+    #                     z_zone = "middle"
+    #                 else:
+    #                     z_zone = "bottom"
+                        
+    #                 zone_key = f"{z_zone}_{x_zone}"
+    #                 target_pose_dict = pose_candidate[zone_key]
+                    
+    #                 for joint_name, pos in target_pose_dict.items():
+    #                     if joint_name != "joint1": # Joint 1 제외
+    #                         joint_idx = self._robot.find_joints(joint_name)[0]
+    #                         joint_pos[i, joint_idx] = pos
+                            
+    #                 # 물체 위치의 Yaw 각도 (라디안) 계산
+    #                 target_yaw_rad = torch.atan2(obj_y, obj_x)
+    #                 # 각도를 Degree로 변환하고 절대값 취함 (0~180도)
+    #                 abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
+
+    #                 # 6개 구역 중 어느 구역에 속하는지 판단하여 목표 각도 설정
+    #                 if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: # 0 ~ 30도
+    #                     target_angle_deg = 15.0
+    #                 elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: # 30 ~ 60도
+    #                     target_angle_deg = 45.0
+    #                 else: # 60 ~ 90도 (혹은 그 이상)
+    #                     target_angle_deg = 75.0
+
+    #                 # 최종 목표 각도 (부호 복원: obj_y의 부호를 따라감)
+    #                 final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
+                    
+    #                 # Joint 1 초기값 최종 설정
+    #                 joint_pos[i, joint1_idx] = final_yaw_rad
+                    
+    #             # Joint 1의 클램핑은 Joint 1의 인덱스를 사용하여 수행
+    #             joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+
+    #             joint_vel = torch.zeros_like(joint_pos)
+    #             self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+    #             self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+                
+    #             self.episode_init_joint_pos[env_ids] = joint_pos
+            
+    #     self.cfg.current_time = 0
+    #     self._compute_intermediate_values(env_ids)
+        
+    #     super()._reset_idx(env_ids)
+
     def _reset_idx(self, env_ids: torch.Tensor | None):
         
+        current_reward_levels = self.current_reward_level[env_ids]
         avg_reward = self.episode_reward_buf[env_ids] / self.episode_length_buf[env_ids]
 
-        # 전역 변수 object_move에 접근하기 위해 global 키워드를 사용합니다.
-        global object_move
+        # 2. 새로운 보상 커리큘럼의 임계값 가져오기
+        success_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["success_multiplier"] for l in current_reward_levels], device=self.device)
+        failure_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["failure_multiplier"] for l in current_reward_levels], device=self.device)
         
-        # 현재 배치에서 리셋된 환경들의 평균 보상의 평균값을 계산합니다.
-        mean_avg_reward = torch.mean(avg_reward).item()
-
-        # 현재 모드가 STATIC이고, 평균 보상이 0.2를 초과했는지 확인합니다.
-        if object_move == ObjectMoveType.STATIC and mean_avg_reward > 0.25:
-            object_move = ObjectMoveType.LINEAR  # 전역 이동 모드를 LINEAR로 변경
-            print("=" * 70)
-            print(f"** TASK CURRICULUM: 평균 보상 ({mean_avg_reward:.4f})이 0.2를 초과했습니다. **")
-            print("** ObjectMoveType.STATIC 에서 ObjectMoveType.LINEAR 로 변경합니다. **")
-            print("=" * 70)        
+        success_thresholds_reward = self.baseline_avg_reward * success_multipliers
+        failure_thresholds_reward = self.baseline_avg_reward * failure_multipliers 
         
-        if self.is_calibrating and training_mode:
-            self.calibration_rewards.extend(avg_reward.cpu().numpy())
-            
-            if len(self.calibration_rewards) >= self.CALIBRATION_RESETS:
-                # N번의 데이터가 쌓이면, 베이스라인 성능을 계산하고 측정 단계를 종료
-                self.baseline_avg_reward = np.mean(self.calibration_rewards)
-                self.is_calibrating = False
-                print("="*50)
-                print(f"** Curriculum Calibration Finished **")
-                print(f"Baseline Average Reward: {self.baseline_avg_reward:.4f}")
-                print(f"Level 0 Success Threshold will be: {self.baseline_avg_reward * reward_curriculum_levels[0]['success_multiplier']:.4f}")
-                print("="*50)
+        success_mask_reward = avg_reward >= success_thresholds_reward
+        failure_mask_reward = avg_reward < failure_thresholds_reward
         
-        else:
-            current_reward_levels = self.current_reward_level[env_ids]
-
-            # 2. 새로운 보상 커리큘럼의 임계값 가져오기
-            success_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["success_multiplier"] for l in current_reward_levels], device=self.device)
-            failure_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["failure_multiplier"] for l in current_reward_levels], device=self.device)
-            
-            success_thresholds_reward = self.baseline_avg_reward * success_multipliers
-            failure_thresholds_reward = self.baseline_avg_reward * failure_multipliers 
-            
-            success_mask_reward = avg_reward >= success_thresholds_reward
-            failure_mask_reward = avg_reward < failure_thresholds_reward        
-
-            # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
-            self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
-            self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
-            self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
-            self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())       
-
-            # 4. 보상 커리큘럼 레벨 승급/강등 처리
-            promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
-            if torch.any(promotion_candidate_mask_reward):
-                promotion_env_ids = env_ids[promotion_candidate_mask_reward]
-                self.current_reward_level[promotion_env_ids] = (self.current_reward_level[promotion_env_ids] + 1).clamp(max=self.max_reward_level)
-                self.consecutive_successes_reward[promotion_env_ids] = 0        
-
-            demotion_candidate_mask_reward = self.consecutive_failures_reward[env_ids] >= self.DEMOTION_COUNT_REWARD
-            if torch.any(demotion_candidate_mask_reward):
-                demotion_env_ids = env_ids[demotion_candidate_mask_reward]
-                self.current_reward_level[demotion_env_ids] = (self.current_reward_level[demotion_env_ids] - 1).clamp(min=0)
-                self.consecutive_failures_reward[demotion_env_ids] = 0
+        # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
+        self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
+        self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
+        self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
+        self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
+              
+        # 4. 보상 커리큘럼 레벨 승급/강등 처리
+        # print("self.consecutive_successes_reward[env_ids] :", self.consecutive_successes_reward[env_ids])
+        promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
+        if torch.any(promotion_candidate_mask_reward):
+            promotion_env_ids = env_ids[promotion_candidate_mask_reward]
+            self.current_reward_level[promotion_env_ids] = (self.current_reward_level[promotion_env_ids] + 1).clamp(max=self.max_reward_level)
+            self.consecutive_successes_reward[promotion_env_ids] = 0        
+        demotion_candidate_mask_reward = self.consecutive_failures_reward[env_ids] >= self.DEMOTION_COUNT_REWARD
+        if torch.any(demotion_candidate_mask_reward):
+            demotion_env_ids = env_ids[demotion_candidate_mask_reward]
+            self.current_reward_level[demotion_env_ids] = (self.current_reward_level[demotion_env_ids] - 1).clamp(min=0)
+            self.consecutive_failures_reward[demotion_env_ids] = 0
         
         # 에피소드 보상 버퍼 초기화
         self.episode_reward_buf[env_ids] = 0.0
                 
         # robot state ---------------------------------------------------------------------------------
         if training_mode:
-            joint_pos = self._robot.data.default_joint_pos[env_ids]
-            
-            # joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            #     -0.125,
-            #     0.125,
-            #     (len(env_ids), self._robot.num_joints),
-            #     self.device,
-            # )
-            
-            # joint_pos = torch.zeros((len(env_ids), self._robot.num_joints), device=self.device)
-            
-            for i, name in enumerate(self.joint_names):
-                joint_idx = self._robot.find_joints([name])[0]
-                joint_pos[:, joint_idx] = self.joint_init_values[i]
-            
-            joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-            joint_vel = torch.zeros_like(joint_pos)
-            self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-            self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            # 로봇 자세 리셋 로직은 _perform_static_reset / _perform_linear_reset 내부로 이동했습니다.
             
             ## 251023_kc
             new_k_c = torch.pow(self.curriculum_factor_k_c[env_ids], self.curriculum_factor_kd)
@@ -1768,299 +2388,61 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
                 self._initialized = True
         
-        # 물체 원 운동 (원 운동 시 환경 초기화 코드)------------------------------------------------------------------------------------------------------------  
-        if object_move == ObjectMoveType.CIRCLE:
-            reset_pos = self.box_center
-            reset_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device, dtype=torch.float32).unsqueeze(0).repeat(self.num_envs, 1)
-            reset_box_pose = torch.cat([reset_pos, reset_rot], dim = -1)
-            self._box.write_root_pose_to_sim(reset_box_pose)
+        if training_mode:
+            
+            current_levels_for_reset = self.current_reward_level[env_ids]
+
+            mask_level_0 = (current_levels_for_reset == 0)
+            mask_level_1 = (current_levels_for_reset == 1)
+            mask_level_2_plus = (current_levels_for_reset >= 2)
+
+            env_ids_level_0 = env_ids[mask_level_0]
+            env_ids_level_1 = env_ids[mask_level_1]
+            env_ids_level_2_plus = env_ids[mask_level_2_plus]
+
+            # 레벨 0 (STATIC)
+            if len(env_ids_level_0) > 0:
+                self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
+                self.obj_speed[env_ids_level_0] = 0.0
+                self.action_scale_tensor[env_ids_level_0] = 1.0 # [추가] 느린 반응 속도
+                self._perform_static_reset(env_ids_level_0) # 로봇/물체 리셋
+
+            # 레벨 1 (LINEAR, 0.0005)
+            if len(env_ids_level_1) > 0:
+                self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
+                self.obj_speed[env_ids_level_1] = 0.0005
+                self.action_scale_tensor[env_ids_level_1] = 1.0 # [추가] 중간 반응 속도
+                self._perform_linear_reset(env_ids_level_1) # 로봇/물체 리셋 + 이동 상태 초기화
+
+            # 레벨 2+ (LINEAR, 0.0007 ~ 0.0015)
+            if len(env_ids_level_2_plus) > 0:
+                self.object_move_state[env_ids_level_2_plus] = self.MOVE_STATE_LINEAR
+                
+                # 랜덤 속도 생성
+                num_level_2_plus = len(env_ids_level_2_plus)
+                random_speeds = torch.rand(num_level_2_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
+                self.obj_speed[env_ids_level_2_plus] = random_speeds
+                self.action_scale_tensor[env_ids_level_2_plus] = 2.0 # [추가] 빠른 반응 속도
+                self._perform_linear_reset(env_ids_level_2_plus) # 로봇/물체 리셋 + 이동 상태 초기화
         
-        # 물체 위치 랜덤 생성 (Static) (실제 물체 생성 코드) -----------------------------------------------------------------------------------------------------------
-        if object_move == ObjectMoveType.STATIC:
-            num_resets = len(env_ids)
+        else: # training_mode == False (테스트 모드)
+            # 파일 상단의 전역 변수 'object_move'와 'obj_speed'를 확인합니다.
+            if object_move == ObjectMoveType.STATIC:
+                self.object_move_state[env_ids] = self.MOVE_STATE_STATIC
+                self.obj_speed[env_ids] = 0.0
+                # _perform_static_reset은 최초 1회만 호출됩니다 (이후 리셋이 없으므로)
+                self._perform_static_reset(env_ids) 
             
-            final_weights = []
-            for key in zone_keys:
-                if not zone_activation.get(key, False): # .get()으로 안전하게 접근
-                    final_weights.append(0.0)
-                    continue
-                z_part, x_part = key.split('_')
-                combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
-                final_weights.append(combined_weight)
-            
-            weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
-
-            selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
-
-            x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
-            x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
-            z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
-            z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
-
-            x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
-            z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
-
-            current_levels = self.current_reward_level[env_ids]
-            
-            y_pos = torch.zeros(num_resets, device=self.device)
-            
-            for level_idx in range(self.max_reward_level + 1):
-                level_mask = (current_levels == level_idx)
-                num_in_level = torch.sum(level_mask)
-                
-                if num_in_level > 0:
-                    y_range = reward_curriculum_levels[level_idx]["y_range"]
-                    y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
-
-            self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
-            
-            ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
-            # rand_reset_pos = self.rand_pos + self.scene.env_origins
-            rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
-            
-            # random_angles = torch.rand(self.num_envs, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
-            # rand_reset_rot = torch.stack([
-            #     torch.cos(random_angles / 2),
-            #     torch.zeros(self.num_envs, device=self.device),
-            #     torch.zeros(self.num_envs, device=self.device),
-            #     torch.sin(random_angles / 2)  
-            # ], dim=1)
-            
-            # rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
-            # zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
-            
-            # self._box.write_root_pose_to_sim(rand_reset_box_pose)
-            # self._box.write_root_velocity_to_sim(zero_root_velocity)
-            
-            # 1. rand_reset_rot을 num_resets 크기로 생성
-            random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
-            
-            rand_reset_rot = torch.stack([
-                torch.cos(random_angles / 2),
-                torch.zeros(num_resets, device=self.device), # 크기: num_resets
-                torch.zeros(num_resets, device=self.device), # 크기: num_resets
-                torch.sin(random_angles / 2)  
-            ], dim=1)
-            
-            # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
-            rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
-            
-            zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
-            
-            # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
-            self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
-            self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
-            
-            if training_mode == True:
-                joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
-                joint1_idx = self._robot.find_joints(["joint1"])[0]
-                
-                YAW_CANDIDATE_ANGLES = {
-                    15.0: math.radians(15.0),
-                    45.0: math.radians(45.0),
-                    75.0: math.radians(75.0),
-                }
-                
-                ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
-                
-                for i, env_id in enumerate(env_ids):
-                    object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
-                    obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
-                            
-                    if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
-                        x_zone = "far"
-                    elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
-                        x_zone = "middle"
-                    else:
-                        x_zone = "close"
-                        
-                    if obj_z >= workspace_zones["z"]["top"]:
-                        z_zone = "top"
-                    elif obj_z >= workspace_zones["z"]["bottom"]:
-                        z_zone = "middle"
-                    else:
-                        z_zone = "bottom"
-                        
-                    zone_key = f"{z_zone}_{x_zone}"
-                    target_pose_dict = pose_candidate[zone_key]
-                    
-                    for joint_name, pos in target_pose_dict.items():
-                        if joint_name != "joint1": # Joint 1 제외
-                            joint_idx = self._robot.find_joints(joint_name)[0]
-                            joint_pos[i, joint_idx] = pos
-                            
-                    # 물체 위치의 Yaw 각도 (라디안) 계산
-                    target_yaw_rad = torch.atan2(obj_y, obj_x)
-                    # 각도를 Degree로 변환하고 절대값 취함 (0~180도)
-                    abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
-
-                    # 6개 구역 중 어느 구역에 속하는지 판단하여 목표 각도 설정
-                    if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: # 0 ~ 30도
-                        target_angle_deg = 15.0
-                    elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: # 30 ~ 60도
-                        target_angle_deg = 45.0
-                    else: # 60 ~ 90도 (혹은 그 이상)
-                        target_angle_deg = 75.0
-
-                    # 최종 목표 각도 (부호 복원: obj_y의 부호를 따라감)
-                    final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
-                    
-                    # Joint 1 초기값 최종 설정
-                    joint_pos[i, joint1_idx] = final_yaw_rad
-                    
-                # Joint 1의 클램핑은 Joint 1의 인덱스를 사용하여 수행
-                joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
-
-                joint_vel = torch.zeros_like(joint_pos)
-                self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-                self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-                
-                self.episode_init_joint_pos[env_ids] = joint_pos
-
-        # 물체 위치 선형 랜덤 이동 (Linear) ---------------------------------------------------------------
-        if object_move == ObjectMoveType.LINEAR:
-        
-            self.new_box_pos_rand = self._box.data.body_link_pos_w[:, 0, :].clone()
-            self.current_box_rot = self._box.data.body_link_quat_w[:, 0, :].clone()
-
-            # self.new_box_pos_rand = self.current_box_pos
-            # self.target_box_pos = self.rand_pos
-
-            direction = self.target_box_pos - self.new_box_pos_rand
-            direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-            self.rand_pos_step = (direction / direction_norm * obj_speed)
-            
-            ## 로봇 자세 초기화 설정
-            num_resets = len(env_ids)
-            
-            final_weights = []
-            for key in zone_keys:
-                if not zone_activation.get(key, False): # .get()으로 안전하게 접근
-                    final_weights.append(0.0)
-                    continue
-                z_part, x_part = key.split('_')
-                combined_weight = x_weights.get(x_part, 1.0) * z_weights.get(z_part, 1.0)
-                final_weights.append(combined_weight)
-            
-            weights_tensor = torch.tensor(final_weights, dtype=torch.float, device=self.device)
-
-            selected_zone_indices = torch.multinomial(weights_tensor, num_resets, replacement=True)
-
-            x_mins = torch.tensor([zone_definitions[zone_keys[i]]["x"][0] for i in selected_zone_indices], device=self.device)
-            x_maxs = torch.tensor([zone_definitions[zone_keys[i]]["x"][1] for i in selected_zone_indices], device=self.device)
-            z_mins = torch.tensor([zone_definitions[zone_keys[i]]["z"][0] for i in selected_zone_indices], device=self.device)
-            z_maxs = torch.tensor([zone_definitions[zone_keys[i]]["z"][1] for i in selected_zone_indices], device=self.device)
-
-            x_pos = torch.rand(num_resets, device=self.device) * (x_maxs - x_mins) + x_mins
-            z_pos = torch.rand(num_resets, device=self.device) * (z_maxs - z_mins) + z_mins
-
-            current_levels = self.current_reward_level[env_ids]
-            
-            y_pos = torch.zeros(num_resets, device=self.device)
-            
-            for level_idx in range(self.max_reward_level + 1):
-                level_mask = (current_levels == level_idx)
-                num_in_level = torch.sum(level_mask)
-                
-                if num_in_level > 0:
-                    y_range = reward_curriculum_levels[level_idx]["y_range"]
-                    y_pos[level_mask] = torch.rand(num_in_level, device=self.device) * (y_range[1] - y_range[0]) + y_range[0]
-
-            self.rand_pos = torch.stack([x_pos, y_pos, z_pos], dim=1)
-            
-            ##25.1023 RuntimeError: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0 error
-            rand_reset_pos = self.rand_pos + self.scene.env_origins[env_ids]
-
-            # 1. rand_reset_rot을 num_resets 크기로 생성
-            random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # 0 ~ 2π 랜덤 값
-            
-            rand_reset_rot = torch.stack([
-                torch.cos(random_angles / 2),
-                torch.zeros(num_resets, device=self.device), # 크기: num_resets
-                torch.zeros(num_resets, device=self.device), # 크기: num_resets
-                torch.sin(random_angles / 2)  
-            ], dim=1)
-            
-            # 2. rand_reset_box_pose를 num_resets 크기의 텐서로 결합
-            rand_reset_box_pose = torch.cat([rand_reset_pos, rand_reset_rot], dim=-1)
-            
-            zero_root_velocity = torch.zeros((self.num_envs, 6), device=self.device)
-            
-            # 3. sim write 시 env_ids를 사용하여 리셋되는 환경에만 적용
-            self._box.write_root_pose_to_sim(rand_reset_box_pose, env_ids=env_ids) # env_ids를 사용해야 함
-            self._box.write_root_velocity_to_sim(zero_root_velocity[env_ids], env_ids=env_ids) # velocity도 슬라이싱
-            
-            if training_mode == True:
-                joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
-                joint1_idx = self._robot.find_joints(["joint1"])[0]
-                
-                YAW_CANDIDATE_ANGLES = {
-                    15.0: math.radians(15.0),
-                    45.0: math.radians(45.0),
-                    75.0: math.radians(75.0),
-                }
-                
-                ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
-                
-                for i, env_id in enumerate(env_ids):
-                    object_pos_local = rand_reset_pos[i] - self.scene.env_origins[env_id]
-                    obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
-                            
-                    if obj_x >= workspace_zones["x"]["far"]: # [구간 A] x >= 0.50
-                        x_zone = "far"
-                    elif obj_x >= workspace_zones["x"]["middle"]: # [구간 B] 0.35 <= x < 0.50
-                        x_zone = "middle"
-                    else:
-                        x_zone = "close"
-                        
-                    if obj_z >= workspace_zones["z"]["top"]:
-                        z_zone = "top"
-                    elif obj_z >= workspace_zones["z"]["bottom"]:
-                        z_zone = "middle"
-                    else:
-                        z_zone = "bottom"
-                        
-                    zone_key = f"{z_zone}_{x_zone}"
-                    target_pose_dict = pose_candidate[zone_key]
-                    
-                    for joint_name, pos in target_pose_dict.items():
-                        if joint_name != "joint1": # Joint 1 제외
-                            joint_idx = self._robot.find_joints(joint_name)[0]
-                            joint_pos[i, joint_idx] = pos
-                            
-                    # 물체 위치의 Yaw 각도 (라디안) 계산
-                    target_yaw_rad = torch.atan2(obj_y, obj_x)
-                    # 각도를 Degree로 변환하고 절대값 취함 (0~180도)
-                    abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
-
-                    # 6개 구역 중 어느 구역에 속하는지 판단하여 목표 각도 설정
-                    if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: # 0 ~ 30도
-                        target_angle_deg = 15.0
-                    elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: # 30 ~ 60도
-                        target_angle_deg = 45.0
-                    else: # 60 ~ 90도 (혹은 그 이상)
-                        target_angle_deg = 75.0
-
-                    # 최종 목표 각도 (부호 복원: obj_y의 부호를 따라감)
-                    final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
-                    
-                    # Joint 1 초기값 최종 설정
-                    joint_pos[i, joint1_idx] = final_yaw_rad
-                    
-                # Joint 1의 클램핑은 Joint 1의 인덱스를 사용하여 수행
-                joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
-
-                joint_vel = torch.zeros_like(joint_pos)
-                self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-                self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-                
-                self.episode_init_joint_pos[env_ids] = joint_pos
+            elif object_move == ObjectMoveType.LINEAR:
+                self.object_move_state[env_ids] = self.MOVE_STATE_LINEAR
+                # 파일 상단의 전역 변수 'obj_speed'를 모든 환경에 적용
+                self.obj_speed[env_ids] = obj_speed 
+                self._perform_linear_reset(env_ids)
             
         self.cfg.current_time = 0
         self._compute_intermediate_values(env_ids)
         
         super()._reset_idx(env_ids)
-
 
     def _get_observations(self) -> dict:
         
@@ -2189,7 +2571,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
                 
         ## R4: 시야 유지 보상 (PView Reward)
-        is_in_front_mask = -box_pos_cam[:, 0] > 0 
+        is_in_front_mask = box_pos_cam[:, 0] > 0 
+        print("box_pos_cam :", box_pos_cam)
+        print("is_in_front_mask :", is_in_front_mask)
         center_offset = torch.norm(box_pos_cam[:, [2,1]], dim=-1)
         
         # 카메라 중심 오차에 대한 연속 보상 항 (탈출 기울기 적용)
