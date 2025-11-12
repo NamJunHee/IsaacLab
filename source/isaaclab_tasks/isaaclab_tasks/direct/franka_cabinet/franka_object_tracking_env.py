@@ -824,7 +824,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.boundaries_z = torch.tensor([workspace_zones["z"]["middle"], workspace_zones["z"]["top"]], device=self.device)
         
         self.log_counter = 0
-        self.LOG_INTERVAL = 2  # 1번의 리셋 묶음마다 한 번씩 로그 출력
+        self.LOG_INTERVAL = 5  # 1번의 리셋 묶음마다 한 번씩 로그 출력
         
         # 성능 모니터링을 위한 버퍼
         self.episode_reward_buf = torch.zeros(self.num_envs, device=self.device)
@@ -1596,14 +1596,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # PView 실패 시 즉시 종료 (True)
             # terminated = self.is_pview_fail
             
-            # k_c 팩터 (스케일) 가져오기
-            k_c_factor = self.curriculum_factor_k_c.squeeze(-1)
+            # # k_c 팩터 (스케일) 가져오기
+            # k_c_factor = self.curriculum_factor_k_c.squeeze(-1)
             
-            # K_c 임계값 설정: k_c가 0.4 이상일 때만 하드 종료 조건을 활성화
-            k_c_threshold_mask = k_c_factor >= 0.4
+            # # K_c 임계값 설정: k_c가 0.4 이상일 때만 하드 종료 조건을 활성화
+            # k_c_threshold_mask = k_c_factor >= 0.4
             
-            # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
-            terminated = self.is_pview_fail & k_c_threshold_mask
+            # # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
+            # terminated = self.is_pview_fail & k_c_threshold_mask
+            
+            terminated = torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
             
         else:
             # 초기화 전이거나 오류 발생 시 False (종료 안 함)
@@ -1611,11 +1613,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # 2. Truncated 조건 (시간 경과) 정의 (기존 방식 유지)
         truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
-        
-        #환경 고정
-        # terminated = 0
-        # truncated = 0
-        
+
         return terminated, truncated
 
     def _get_rewards(self) -> torch.Tensor:
@@ -1921,7 +1919,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.episode_init_joint_pos[env_ids] = joint_pos
     
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        
+                
         current_reward_levels = self.current_reward_level[env_ids]
         avg_reward = self.episode_reward_buf[env_ids] / self.episode_length_buf[env_ids]
 
@@ -1938,17 +1936,37 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
         self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
         self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
+        
         self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
         self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
               
         # 4. 보상 커리큘럼 레벨 승급/강등 처리
         # print("self.consecutive_successes_reward[env_ids] :", self.consecutive_successes_reward[env_ids])
+        # [추가 시작] ------------------------------------------------------------------
+        # 로그 카운터를 증가시킵니다.
+        self.log_counter += 1
+        print("log_counter: ", self.log_counter)
+        # LOG_INTERVAL 주기마다 평균 연속 성공 횟수를 출력합니다.
+        if self.log_counter % self.LOG_INTERVAL == 0:
+            
+            # self.consecutive_successes_reward (LongTensor)를 float으로 변환 후 평균 계산
+            avg_successes = torch.mean(self.consecutive_successes_reward.float()).item()
+            
+            # [수정] 한 줄에서 업데이트되도록 \r과 end=""를 사용합니다.
+            print(f"[Training Log] Avg Consecutive Successes: {avg_successes:.2f}")
+            
+            self.log_counter = 0 # 카운터 초기화
+        # [추가 끝] --------------------------------------------------------------------
+        
         promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
+        
         if torch.any(promotion_candidate_mask_reward):
             promotion_env_ids = env_ids[promotion_candidate_mask_reward]
             self.current_reward_level[promotion_env_ids] = (self.current_reward_level[promotion_env_ids] + 1).clamp(max=self.max_reward_level)
-            self.consecutive_successes_reward[promotion_env_ids] = 0        
+            self.consecutive_successes_reward[promotion_env_ids] = 0
+            
         demotion_candidate_mask_reward = self.consecutive_failures_reward[env_ids] >= self.DEMOTION_COUNT_REWARD
+        
         if torch.any(demotion_candidate_mask_reward):
             demotion_env_ids = env_ids[demotion_candidate_mask_reward]
             self.current_reward_level[demotion_env_ids] = (self.current_reward_level[demotion_env_ids] - 1).clamp(min=0)
@@ -1958,18 +1976,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.episode_reward_buf[env_ids] = 0.0
                 
         # robot state ---------------------------------------------------------------------------------
-        if training_mode:
-            # 로봇 자세 리셋 로직은 _perform_static_reset / _perform_linear_reset 내부로 이동했습니다.
-            
-            ## 251023_kc
+        if training_mode:            
             new_k_c = torch.pow(self.curriculum_factor_k_c[env_ids], self.curriculum_factor_kd)
             self.curriculum_factor_k_c[env_ids] = new_k_c
-        
-            # k_c가 1.0을 초과하지 않도록 클램핑
             self.curriculum_factor_k_c.clamp_(max=1.0)    
-        
         else:
-            # 최초 한 번만 실행
             if not hasattr(self, "_initialized"):
                 self._initialized = False
 
@@ -1983,7 +1994,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._initialized = True
         
         if training_mode:
-            
             current_levels_for_reset = self.current_reward_level[env_ids]
 
             mask_level_0 = (current_levels_for_reset == 0)
@@ -2020,7 +2030,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._perform_linear_reset(env_ids_level_2_plus) # 로봇/물체 리셋 + 이동 상태 초기화
         
         else: # training_mode == False (테스트 모드)
-            self.action_scale_tensor[env_ids] = 1.5 # (4.0이 적용됨)
+            self.action_scale_tensor[env_ids] = 0.5 # (4.0이 적용됨)
             
             # 파일 상단의 전역 변수 'object_move'와 'obj_speed'를 확인합니다.
             if object_move == ObjectMoveType.STATIC:
@@ -2134,7 +2144,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         distance_error = torch.abs(gripper_to_box_dist - target_distance)
         distance_reward = (
             torch.exp(-ALPHA_DIST * distance_error) # <--- ALPHA_DIST 동적 적용
-            + ESCAPE_GRADIENT * distance_error
+            # - ESCAPE_GRADIENT * distance_error
         )
 
         ## R2: 각도 정렬 보상 (Vector Alignment Reward)
@@ -2149,7 +2159,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         vector_alignment_reward = (
             torch.exp(-ALPHA_VEC * angle_error_rad) # <--- ALPHA_VEC 동적 적용
-            + ESCAPE_GRADIENT * angle_error_rad
+            # - ESCAPE_GRADIENT * angle_error_rad
         )
 
         ## R3: 그리퍼 위치 유지 보상 (Position Alignment Reward)
@@ -2163,7 +2173,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         position_alignment_reward = (
             torch.exp(-ALPHA_POS * gripper_proj_dist) # <--- ALPHA_POS 동적 적용
-            + ESCAPE_GRADIENT * gripper_proj_dist
+            # - ESCAPE_GRADIENT * gripper_proj_dist
         )
                 
         ## R4: 시야 유지 보상 (PView Reward)
@@ -2175,7 +2185,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 카메라 중심 오차에 대한 연속 보상 항 (탈출 기울기 적용)
         pview_positive_reward = (
             torch.exp(-ALPHA_PVIEW * center_offset) # <--- ALPHA_PVIEW 동적 적용
-            + ESCAPE_GRADIENT * center_offset
+            #- ESCAPE_GRADIENT * center_offset
         )
         
         # 물체가 카메라 뒤에 있을 때 강제 페널티 (R > 0 유지를 위해 1e-6)
