@@ -67,12 +67,12 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
-test_graph_mode = False
+camera_enable = True
+image_publish = True
+test_graph_mode = True
 
 robot_action = False
 robot_init_pose = False
@@ -108,38 +108,101 @@ rand_pos_range = {
     
 }
 
+# reward_curriculum_levels = [
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.7, "joint_penalty": 0.5},
+#         "success_multiplier": 1.5, "failure_multiplier": 1.2, 
+#         "y_range" : ( -0.35, 0.35),
+        
+#         "distance_margin" : 0.10,
+#         "vector_align_margin" : math.radians(15.0),
+#         "position_align_margin" : 0.15,
+#         "pview_margin" : 0.15,
+#         "fail_margin" : 0.3,
+#     },
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 0.8, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
+#         "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+#         "y_range": (-0.35, 0.35),
+        
+#         "distance_margin" : 0.05,
+#         "vector_align_margin" : math.radians(10.0),
+#         "position_align_margin" : 0.10,
+#         "pview_margin" : 0.10,
+#         "fail_margin" : 0.25
+#     },
+#     {
+#         "reward_scales": {"pview": 1.2, "distance": 1.0, "vector_align": 1.2, "position_align": 1.2, "joint_penalty": 0.5},
+#         "success_multiplier": 2.0, "failure_multiplier": 1.2, 
+#         "y_range": (-0.35, 0.35),
+        
+#         "distance_margin" : 0.02,
+#         "vector_align_margin" : math.radians(5.0),
+#         "position_align_margin" : 0.05,
+#         "pview_margin" : 0.05,
+#         "fail_margin" : 0.2,
+#     },
+# ]
+
 reward_curriculum_levels = [
+    # Level 0: (Static, Robot Speed 0.5) - 가장 넓은 마진
     {
         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.7, "joint_penalty": 0.5},
         "success_multiplier": 1.5, "failure_multiplier": 1.2, 
         "y_range" : ( -0.35, 0.35),
-        
-        "distance_margin" : 0.10,
-        "vector_align_margin" : math.radians(15.0),
-        "position_align_margin" : 0.15,
-        "pview_margin" : 0.15,
-        "fail_margin" : 0.3,
+
+        "distance_margin" : 0.30,
+        "vector_align_margin" : math.radians(30.0),
+        "position_align_margin" : 0.30,
+        "pview_margin" : 0.30,
+        "fail_margin" : 0.4,
     },
+    # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 "먼저" 학습
+    {
+        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.7, "joint_penalty": 0.5},
+        "success_multiplier": 1.5, "failure_multiplier": 1.2, 
+        "y_range" : ( -0.35, 0.35),
+
+        "distance_margin" : 0.25, # 마진 약간 좁힘
+        "vector_align_margin" : math.radians(25.0),
+        "position_align_margin" : 0.25,
+        "pview_margin" : 0.25,
+        "fail_margin" : 0.35,
+    },
+    # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - "그다음" 로봇 속도 증가
     {
         "reward_scales": {"pview": 1.0, "distance": 0.8, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
         "success_multiplier": 1.0, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
-        
-        "distance_margin" : 0.05,
-        "vector_align_margin" : math.radians(10.0),
-        "position_align_margin" : 0.10,
-        "pview_margin" : 0.10,
-        "fail_margin" : 0.25
+
+        "distance_margin" : 0.20,
+        "vector_align_margin" : math.radians(20.0),
+        "position_align_margin" : 0.20,
+        "pview_margin" : 0.20,
+        "fail_margin" : 0.3
     },
+    # [신규] Level 3: (Moving Random, Robot Speed 1.0) - "그다음" 물체 속도 증가
+    {
+        "reward_scales": {"pview": 1.0, "distance": 0.8, "vector_align": 1.0, "position_align": 0.8, "joint_penalty": 0.5},
+        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "y_range": (-0.35, 0.35),
+
+        "distance_margin" : 0.15,
+        "vector_align_margin" : math.radians(15.0),
+        "position_align_margin" : 0.15,
+        "pview_margin" : 0.15,
+        "fail_margin" : 0.3
+    },
+    # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
     {
         "reward_scales": {"pview": 1.2, "distance": 1.0, "vector_align": 1.2, "position_align": 1.2, "joint_penalty": 0.5},
         "success_multiplier": 2.0, "failure_multiplier": 1.2, 
         "y_range": (-0.35, 0.35),
-        
-        "distance_margin" : 0.02,
-        "vector_align_margin" : math.radians(5.0),
-        "position_align_margin" : 0.05,
-        "pview_margin" : 0.05,
+
+        "distance_margin" : 0.10,
+        "vector_align_margin" : math.radians(10.0),
+        "position_align_margin" : 0.10,
+        "pview_margin" : 0.1,
         "fail_margin" : 0.2,
     },
 ]
@@ -831,14 +894,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # 1. 보상 스케일만 조절하는 새로운 커리큘럼 레벨 정의
         self.max_reward_level = len(reward_curriculum_levels) - 1
-        self.baseline_avg_reward = 0.30 # 계산된 기준 보상값
+        self.baseline_avg_reward = 0.20 # 계산된 기준 보상값
 
         # 2. 보상 커리큘럼을 위한 독립적인 상태 변수들
         self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.consecutive_successes_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.consecutive_failures_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.PROMOTION_COUNT_REWARD = 800
-        self.DEMOTION_COUNT_REWARD = 300
+        self.PROMOTION_COUNT_REWARD = 10
+        self.DEMOTION_COUNT_REWARD = 5
         
         self.episode_init_joint_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         
@@ -1581,7 +1644,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._robot.set_joint_position_target(target_pos)
         
     # post-physics step calls
-
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
                 
         # if training_mode or object_move == ObjectMoveType.CIRCLE :
@@ -1605,7 +1667,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # # PView 실패 마스크와 k_c 임계값 마스크를 AND 연산
             # terminated = self.is_pview_fail & k_c_threshold_mask
             
-            terminated = torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+            # terminated = torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+            
+            # 1. Level 3 이상인 환경에 대한 마스크를 생성합니다.
+            strict_mask = (self.current_reward_level >= 3)
+            
+            # 2. PView를 실패하고 "고급 레벨"인 환경만 종료시킵니다.
+            terminated = self.is_pview_fail & strict_mask
             
         else:
             # 초기화 전이거나 오류 발생 시 False (종료 안 함)
@@ -1673,7 +1741,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         out_of_fov_mask = center_offset > fail_margin
 
         # 2. 물체가 카메라 뒤에 위치하는 마스크 (is_in_front_mask 반대)
-        is_behind_mask = -self.box_pos_cam[:, 0] <= 0 
+        # print("self.box_pos_cam[:, 0] :", self.box_pos_cam[:, 0])
+        is_behind_mask = self.box_pos_cam[:, 0] > 0 
 
         # 3. 최종 PView 실패 마스크
         self.is_pview_fail = out_of_fov_mask | is_behind_mask
@@ -1940,23 +2009,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
         self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
               
-        # 4. 보상 커리큘럼 레벨 승급/강등 처리
-        # print("self.consecutive_successes_reward[env_ids] :", self.consecutive_successes_reward[env_ids])
-        # [추가 시작] ------------------------------------------------------------------
-        # 로그 카운터를 증가시킵니다.
         self.log_counter += 1
         print("log_counter: ", self.log_counter)
-        # LOG_INTERVAL 주기마다 평균 연속 성공 횟수를 출력합니다.
+        
         if self.log_counter % self.LOG_INTERVAL == 0:
-            
-            # self.consecutive_successes_reward (LongTensor)를 float으로 변환 후 평균 계산
             avg_successes = torch.mean(self.consecutive_successes_reward.float()).item()
-            
-            # [수정] 한 줄에서 업데이트되도록 \r과 end=""를 사용합니다.
             print(f"[Training Log] Avg Consecutive Successes: {avg_successes:.2f}")
-            
             self.log_counter = 0 # 카운터 초기화
-        # [추가 끝] --------------------------------------------------------------------
         
         promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
         
@@ -1996,41 +2055,96 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if training_mode:
             current_levels_for_reset = self.current_reward_level[env_ids]
 
+            # mask_level_0 = (current_levels_for_reset == 0)
+            # mask_level_1 = (current_levels_for_reset == 1)
+            # mask_level_2_plus = (current_levels_for_reset >= 2)
+
+            # env_ids_level_0 = env_ids[mask_level_0]
+            # env_ids_level_1 = env_ids[mask_level_1]
+            # env_ids_level_2_plus = env_ids[mask_level_2_plus]
+
+            # # 레벨 0 (STATIC)
+            # if len(env_ids_level_0) > 0:
+            #     self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
+            #     self.obj_speed[env_ids_level_0] = 0.0
+            #     self.action_scale_tensor[env_ids_level_0] = 0.5 # [추가] 느린 반응 속도
+            #     self._perform_static_reset(env_ids_level_0) # 로봇/물체 리셋
+
+            # # 레벨 1 (LINEAR, 0.0005)
+            # if len(env_ids_level_1) > 0:
+            #     self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
+            #     self.obj_speed[env_ids_level_1] = 0.0005
+            #     self.action_scale_tensor[env_ids_level_1] = 1.0 # [추가] 중간 반응 속도
+            #     self._perform_linear_reset(env_ids_level_1) # 로봇/물체 리셋 + 이동 상태 초기화
+
+            # # 레벨 2+ (LINEAR, 0.0007 ~ 0.0015)
+            # if len(env_ids_level_2_plus) > 0:
+            #     self.object_move_state[env_ids_level_2_plus] = self.MOVE_STATE_LINEAR
+                
+            #     # 랜덤 속도 생성
+            #     num_level_2_plus = len(env_ids_level_2_plus)
+            #     random_speeds = torch.rand(num_level_2_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
+            #     self.obj_speed[env_ids_level_2_plus] = random_speeds
+            #     self.action_scale_tensor[env_ids_level_2_plus] = 1.5 # [추가] 빠른 반응 속도
+            #     self._perform_linear_reset(env_ids_level_2_plus) # 로봇/물체 리셋 + 이동 상태 초기화
+            
+            # [수정] 5단계로 마스크 확장
             mask_level_0 = (current_levels_for_reset == 0)
             mask_level_1 = (current_levels_for_reset == 1)
-            mask_level_2_plus = (current_levels_for_reset >= 2)
+            mask_level_2 = (current_levels_for_reset == 2)
+            mask_level_3 = (current_levels_for_reset == 3)
+            mask_level_4_plus = (current_levels_for_reset >= 4)
 
             env_ids_level_0 = env_ids[mask_level_0]
             env_ids_level_1 = env_ids[mask_level_1]
-            env_ids_level_2_plus = env_ids[mask_level_2_plus]
+            env_ids_level_2 = env_ids[mask_level_2]
+            env_ids_level_3 = env_ids[mask_level_3]
+            env_ids_level_4_plus = env_ids[mask_level_4_plus]
 
-            # 레벨 0 (STATIC)
+            # Level 0: (Static, Robot Speed 0.5)
             if len(env_ids_level_0) > 0:
                 self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
                 self.obj_speed[env_ids_level_0] = 0.0
-                self.action_scale_tensor[env_ids_level_0] = 0.5 # [추가] 느린 반응 속도
-                self._perform_static_reset(env_ids_level_0) # 로봇/물체 리셋
+                self.action_scale_tensor[env_ids_level_0] = 0.5 
+                self._perform_static_reset(env_ids_level_0) 
 
-            # 레벨 1 (LINEAR, 0.0005)
+            # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 먼저
             if len(env_ids_level_1) > 0:
                 self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
-                self.obj_speed[env_ids_level_1] = 0.0005
-                self.action_scale_tensor[env_ids_level_1] = 1.0 # [추가] 중간 반응 속도
-                self._perform_linear_reset(env_ids_level_1) # 로봇/물체 리셋 + 이동 상태 초기화
+                self.obj_speed[env_ids_level_1] = 0.0005 # 물체 이동 시작
+                self.action_scale_tensor[env_ids_level_1] = 0.5 # 로봇 속도 유지
+                self._perform_linear_reset(env_ids_level_1)
 
-            # 레벨 2+ (LINEAR, 0.0007 ~ 0.0015)
-            if len(env_ids_level_2_plus) > 0:
-                self.object_move_state[env_ids_level_2_plus] = self.MOVE_STATE_LINEAR
-                
-                # 랜덤 속도 생성
-                num_level_2_plus = len(env_ids_level_2_plus)
-                random_speeds = torch.rand(num_level_2_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
-                self.obj_speed[env_ids_level_2_plus] = random_speeds
-                self.action_scale_tensor[env_ids_level_2_plus] = 1.5 # [추가] 빠른 반응 속도
-                self._perform_linear_reset(env_ids_level_2_plus) # 로봇/물체 리셋 + 이동 상태 초기화
-        
+            # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - 다음 로봇 속도 증가
+            if len(env_ids_level_2) > 0:
+                self.object_move_state[env_ids_level_2] = self.MOVE_STATE_LINEAR
+                self.obj_speed[env_ids_level_2] = 0.0005
+                self.action_scale_tensor[env_ids_level_2] = 1.0 # 로봇 속도 증가
+                self._perform_linear_reset(env_ids_level_2)
+
+            # [신규] Level 3: (Moving Random, Robot Speed 1.0) - 다음 물체 속도 증가
+            if len(env_ids_level_3) > 0:
+                self.object_move_state[env_ids_level_3] = self.MOVE_STATE_LINEAR
+                # 랜덤 속도
+                num_level_3 = len(env_ids_level_3)
+                random_speeds = torch.rand(num_level_3, device=self.device) * (0.0015 - 0.0007) + 0.0007
+                self.obj_speed[env_ids_level_3] = random_speeds
+
+                self.action_scale_tensor[env_ids_level_3] = 1.0 # 로봇 속도 유지
+                self._perform_linear_reset(env_ids_level_3)
+
+            # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
+            if len(env_ids_level_4_plus) > 0:
+                self.object_move_state[env_ids_level_4_plus] = self.MOVE_STATE_LINEAR
+
+                num_level_4_plus = len(env_ids_level_4_plus)
+                random_speeds = torch.rand(num_level_4_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
+                self.obj_speed[env_ids_level_4_plus] = random_speeds
+                self.action_scale_tensor[env_ids_level_4_plus] = 1.5 # 로봇 속도 증가
+                self._perform_linear_reset(env_ids_level_4_plus)
+
         else: # training_mode == False (테스트 모드)
-            self.action_scale_tensor[env_ids] = 0.5 # (4.0이 적용됨)
+            self.action_scale_tensor[env_ids] = 1.0 # (4.0이 적용됨)
             
             # 파일 상단의 전역 변수 'object_move'와 'obj_speed'를 확인합니다.
             if object_move == ObjectMoveType.STATIC:
@@ -2178,8 +2292,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 
         ## R4: 시야 유지 보상 (PView Reward)
         is_in_front_mask = box_pos_cam[:, 0] < 0 
-        # print("box_pos_cam :", box_pos_cam)
-        # print("is_in_front_mask :", is_in_front_mask)
         center_offset = torch.norm(box_pos_cam[:, [2,1]], dim=-1)
         
         # 카메라 중심 오차에 대한 연속 보상 항 (탈출 기울기 적용)
@@ -2190,7 +2302,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         # 물체가 카메라 뒤에 있을 때 강제 페널티 (R > 0 유지를 위해 1e-6)
         pview_reward = torch.where(is_in_front_mask, pview_positive_reward, torch.full_like(center_offset, 1e-6))
-
+        
         ## P1: 자세 안정성 유지 페널티 (Joint Penalty) - 곱셈 보상과 분리하여 덧셈 페널티로 적용
         joint_deviation = torch.abs(self._robot.data.joint_pos - self.episode_init_joint_pos)
         joint_weights = torch.ones_like(joint_deviation)
