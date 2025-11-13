@@ -1592,7 +1592,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
                 self._robot.set_joint_position_target(target_pos)
-                # self._robot.set_joint_position_target(self.robot_dof_targets)
             
             elif robot_action == False and robot_init_pose == False:
                 init_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
@@ -1635,7 +1634,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
                 max_err = torch.max(joint_err).item()
                 
-                # print(f"max_err : {max_err}")
                 if max_err < 0.3:
                     robot_init_pose = True
                     robot_action = True
@@ -1868,6 +1866,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _perform_linear_reset(self, env_ids: torch.Tensor):
         
+        if not training_mode:
+            new_seed = int(time.time() * 1000) % (2**32 - 1)
+            torch.manual_seed(new_seed)
+        
         num_resets = len(env_ids)
         if num_resets == 0:
             return
@@ -2054,39 +2056,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         if training_mode:
             current_levels_for_reset = self.current_reward_level[env_ids]
-
-            # mask_level_0 = (current_levels_for_reset == 0)
-            # mask_level_1 = (current_levels_for_reset == 1)
-            # mask_level_2_plus = (current_levels_for_reset >= 2)
-
-            # env_ids_level_0 = env_ids[mask_level_0]
-            # env_ids_level_1 = env_ids[mask_level_1]
-            # env_ids_level_2_plus = env_ids[mask_level_2_plus]
-
-            # # 레벨 0 (STATIC)
-            # if len(env_ids_level_0) > 0:
-            #     self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
-            #     self.obj_speed[env_ids_level_0] = 0.0
-            #     self.action_scale_tensor[env_ids_level_0] = 0.5 # [추가] 느린 반응 속도
-            #     self._perform_static_reset(env_ids_level_0) # 로봇/물체 리셋
-
-            # # 레벨 1 (LINEAR, 0.0005)
-            # if len(env_ids_level_1) > 0:
-            #     self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
-            #     self.obj_speed[env_ids_level_1] = 0.0005
-            #     self.action_scale_tensor[env_ids_level_1] = 1.0 # [추가] 중간 반응 속도
-            #     self._perform_linear_reset(env_ids_level_1) # 로봇/물체 리셋 + 이동 상태 초기화
-
-            # # 레벨 2+ (LINEAR, 0.0007 ~ 0.0015)
-            # if len(env_ids_level_2_plus) > 0:
-            #     self.object_move_state[env_ids_level_2_plus] = self.MOVE_STATE_LINEAR
-                
-            #     # 랜덤 속도 생성
-            #     num_level_2_plus = len(env_ids_level_2_plus)
-            #     random_speeds = torch.rand(num_level_2_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
-            #     self.obj_speed[env_ids_level_2_plus] = random_speeds
-            #     self.action_scale_tensor[env_ids_level_2_plus] = 1.5 # [추가] 빠른 반응 속도
-            #     self._perform_linear_reset(env_ids_level_2_plus) # 로봇/물체 리셋 + 이동 상태 초기화
             
             # [수정] 5단계로 마스크 확장
             mask_level_0 = (current_levels_for_reset == 0)
@@ -2144,18 +2113,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._perform_linear_reset(env_ids_level_4_plus)
 
         else: # training_mode == False (테스트 모드)
+            print("action_scale_tensor :", self.action_scale_tensor[env_ids])
             self.action_scale_tensor[env_ids] = 1.0 # (4.0이 적용됨)
             
-            # 파일 상단의 전역 변수 'object_move'와 'obj_speed'를 확인합니다.
             if object_move == ObjectMoveType.STATIC:
                 self.object_move_state[env_ids] = self.MOVE_STATE_STATIC
                 self.obj_speed[env_ids] = 0.0
-                # _perform_static_reset은 최초 1회만 호출됩니다 (이후 리셋이 없으므로)
                 self._perform_static_reset(env_ids) 
             
             elif object_move == ObjectMoveType.LINEAR:
                 self.object_move_state[env_ids] = self.MOVE_STATE_LINEAR
-                # 파일 상단의 전역 변수 'obj_speed'를 모든 환경에 적용
                 self.obj_speed[env_ids] = obj_speed 
                 self._perform_linear_reset(env_ids)
             
