@@ -2117,7 +2117,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         else: # training_mode == False (테스트 모드)
             print("action_scale_tensor :", self.action_scale_tensor[env_ids])
-            self.action_scale_tensor[env_ids] = 1.0 # (4.0이 적용됨)
+            self.action_scale_tensor[env_ids] = 1.5 # (4.0이 적용됨)
             
             if object_move == ObjectMoveType.STATIC:
                 self.object_move_state[env_ids] = self.MOVE_STATE_STATIC
