@@ -89,8 +89,8 @@ add_episode_length = 200
 vel_ratio = 1.0
 
 # obj_speed = 0.0005
-# obj_speed = 0.001
-obj_speed = 0.0015
+obj_speed = 0.001
+# obj_speed = 0.0015
 # obj_speed = 0.002
 
 rand_pos_range = {
@@ -1471,9 +1471,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         
         self.actions = actions.clone().clamp(-1.0, 1.0)
-        
-        print("self.actions :", self.actions)
-        
+                
         # 1. 정책(actions)에 따른 잠재적 다음 목표 위치 계산
         current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
         potential_targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * current_action_scale
@@ -1653,7 +1651,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         if hasattr(self, 'is_pview_fail'):
 
-            is_high_level = (self.current_reward_level >= 4)
+            is_high_level = (self.current_reward_level >= 3)
             current_fail = self.is_pview_fail
             
             self.out_of_fov_counter = torch.where(
@@ -1701,7 +1699,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             object_pos = self.box_grasp_pos[0].cpu().numpy()
             
             cam_pos = np.zeros(2) 
-            cam_pos[0] = self.box_pos_cam[0,2].cpu().numpy() #x축
+            cam_pos[0] = self.box_pos_cam[0,0].cpu().numpy() #x축
             cam_pos[1] = self.box_pos_cam[0,1].cpu().numpy() #y축
             
             distance_val = gripper_to_box_dist[0].cpu().numpy()
@@ -2116,7 +2114,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self._perform_linear_reset(env_ids_level_4_plus)
 
         else: # training_mode == False (테스트 모드)
-            print("action_scale_tensor :", self.action_scale_tensor[env_ids])
+            # print("action_scale_tensor :", self.action_scale_tensor[env_ids])
             self.action_scale_tensor[env_ids] = 1.5 # (4.0이 적용됨)
             
             if object_move == ObjectMoveType.STATIC:
@@ -2282,7 +2280,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         #     # - ESCAPE_GRADIENT * cam_proj_dist
         # )
         
-        # "카메라 중심 정렬" 보상으로 대체하여
         is_in_front_mask = box_pos_cam[:, 2] > 0 
         center_offset_r3 = torch.norm(box_pos_cam[:, [0,1]], dim=-1)
         position_alignment_reward_raw = torch.exp(-ALPHA_POS * center_offset_r3)
@@ -2315,12 +2312,30 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # joint_penalty = torch.sum(weighted_joint_deviation, dim=-1)
         # joint_penalty = torch.tanh(joint_penalty)
 
-        rewards = (
-            torch.pow(distance_reward, distance_reward_scale) *
+        # rewards = (
+        #     torch.pow(distance_reward, distance_reward_scale) *
+        #     torch.pow(vector_alignment_reward, vector_align_reward_scale) *
+        #     torch.pow(position_alignment_reward, position_align_reward_scale) * 
+        #     torch.pow(pview_reward, pview_reward_scale)
+        # )
+        
+        # [수정 제안] 하이브리드 보상 방식
+        # Distance는 "Base"로 깔고, 나머지는 "Multiplier"로 작용하게 합니다.
+        
+        # 1. 보조 보상들 (Align, View)을 하나로 묶습니다.
+        #    이들이 0이 되어도 전체가 0이 되지 않도록 '안전 마진(0.3)'을 둡니다.
+        #    0.3(기본) + 0.7(성과) 구조입니다.
+        auxiliary_rewards = (
             torch.pow(vector_alignment_reward, vector_align_reward_scale) *
-            torch.pow(position_alignment_reward, position_align_reward_scale) * 
-            torch.pow(pview_reward, pview_reward_scale)
+            torch.pow(position_alignment_reward, position_align_reward_scale) * torch.pow(pview_reward, pview_reward_scale)
         )
+        
+        # 2. 안전 장치 적용: 보조 보상이 망해도 최소 0.3은 유지
+        safe_multiplier = 0.3 + 0.7 * auxiliary_rewards
+        
+        # 3. 최종 보상: 거리 보상 * 안전 장치
+        #    이제 시야를 놓쳐도 거리 점수의 30%는 무조건 챙깁니다.
+        rewards = torch.pow(distance_reward, distance_reward_scale) * safe_multiplier
         
         self.last_step_reward = rewards.detach()
         
