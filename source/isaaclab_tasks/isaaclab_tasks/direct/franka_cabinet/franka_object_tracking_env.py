@@ -21,7 +21,7 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from isaaclab.utils.math import sample_uniform
+# from isaaclab.utils.math import sample_uniform
 
 from isaaclab.sensors import CameraCfg, Camera
 from isaaclab.assets import RigidObjectCfg, RigidObject
@@ -44,7 +44,6 @@ from geometry_msgs.msg import Point
 import math
 
 from cv_bridge import CvBridge
-import threading
 import time
 
 import matplotlib.pyplot as plt
@@ -67,12 +66,12 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
-test_graph_mode = False
+camera_enable = True
+image_publish = True
+test_graph_mode = True
 
 robot_action = False
 robot_init_pose = False
@@ -414,9 +413,6 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         observation_space = 23
         
     elif robot_type == RobotType.UF:
-        # action_space = 12
-        # observation_space = 29
-        
         action_space = 6
         observation_space = 17
         
