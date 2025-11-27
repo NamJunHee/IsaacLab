@@ -83,7 +83,7 @@ init_reward = True
 add_episode_length = 200
 # add_episode_length = 300
 # add_episode_length = -800
-# add_episode_length = -900
+# add_episode_length = -930
 # add_episode_length = -500
 
 vel_ratio = 1.0
@@ -94,9 +94,9 @@ obj_speed = 0.0015
 # obj_speed = 0.002
 
 rand_pos_range = {
-    "x" : (  0.35, 0.75),
+    "x" : (  0.35, 0.80),
     "y" : ( -0.40, 0.40),
-    "z" : (  0.08, 0.75),
+    "z" : (  0.08, 0.80),
     
     # "x" : (  0.5, 0.70),
     # "y" : ( -0.35, 0.35),
@@ -118,7 +118,7 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(30.0),
         "position_align_margin" : 0.30,
         "pview_margin" : 0.30,
-        "fail_margin" : 0.35,
+        "fail_margin" : 0.40,
     },
     # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 "먼저" 학습
     {
@@ -130,7 +130,7 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(25.0),
         "position_align_margin" : 0.25,
         "pview_margin" : 0.25,
-        "fail_margin" : 0.30,
+        "fail_margin" : 0.35,
     },
     # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - "그다음" 로봇 속도 증가
     {
@@ -142,7 +142,7 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(20.0),
         "position_align_margin" : 0.20,
         "pview_margin" : 0.20,
-        "fail_margin" : 0.25
+        "fail_margin" : 0.30
     },
     # [신규] Level 3: (Moving Random, Robot Speed 1.0) - "그다음" 물체 속도 증가
     {
@@ -154,7 +154,7 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(15.0),
         "position_align_margin" : 0.15,
         "pview_margin" : 0.15,
-        "fail_margin" : 0.20
+        "fail_margin" : 0.30
     },
     # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
     {
@@ -166,7 +166,7 @@ reward_curriculum_levels = [
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
         "pview_margin" : 0.10,
-        "fail_margin" : 0.15,
+        "fail_margin" : 0.20,
     },
 ]
 
@@ -849,7 +849,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.boundaries_z = torch.tensor([workspace_zones["z"]["middle"], workspace_zones["z"]["top"]], device=self.device)
         
         self.log_counter = 0
-        self.LOG_INTERVAL = 6  # 1번의 리셋 묶음마다 한 번씩 로그 출력
+        self.LOG_INTERVAL = 5  # 1번의 리셋 묶음마다 한 번씩 로그 출력
         
         # 성능 모니터링을 위한 버퍼
         self.episode_reward_buf = torch.zeros(self.num_envs, device=self.device)
@@ -859,12 +859,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.baseline_avg_reward = 0.05 # 계산된 기준 보상값
 
         # 2. 보상 커리큘럼을 위한 독립적인 상태 변수들
-        self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        # self.current_reward_level = torch.full((self.num_envs,), 0, dtype=torch.long, device=self.device)
-        # self.consecutive_successes_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        # self.consecutive_failures_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        # self.PROMOTION_COUNT_REWARD = 20
-        # self.DEMOTION_COUNT_REWARD = 10
+        # self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.current_reward_level = torch.full((self.num_envs,), 0, dtype=torch.long, device=self.device)
+        self.consecutive_successes_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.consecutive_failures_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.PROMOTION_COUNT_REWARD = 20
+        self.DEMOTION_COUNT_REWARD = 10
         
         self.episode_init_joint_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         
@@ -1046,6 +1046,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             (self.num_envs, 1)
         )
         
+        # self.cube_z_axis = torch.tensor([0,0,1], device=self.device, dtype=torch.float32).repeat(
+        #     (self.num_envs,1)
+        # )
         self.box_z_axis = torch.tensor([0,0,1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs,1)
         )
@@ -1087,7 +1090,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.obj_origin_distance = 0.0
         self.out_of_fov_cnt = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
         
-        if image_publish:      
+        if image_publish:
+            
             qos_profile = QoSProfile(depth=10)
             qos_profile.reliability = QoSReliabilityPolicy.BEST_EFFORT
 
@@ -1097,6 +1101,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
             
             self.bridge = CvBridge()
+        
         if foundationpose_mode:
             self.latest_detection_msg = None
             self.foundationpose_node = rclpy.create_node('foundationpose_receiver')
@@ -1113,33 +1118,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.is_object_visible_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.current_joint_pos_buffer = self._robot.data.joint_pos.clone()
         
-        # [수정] 승률 계산을 위한 단순 카운터 변수 (이름은 기존거 재활용해도 되지만, 명확히 하기 위해)
-        self.success_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.failure_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        
+        # [신규 추가] 복합 성공 조건 관련 버퍼 및 상수
         self.avg_distance_error_buf = torch.zeros(self.num_envs, device=self.device)
-        self.success_steps_buf = torch.zeros(self.num_envs, device=self.device)
+        # self.episode_steps_buf = torch.zeros(self.num_envs, device=self.device)
+        self.success_steps_buf = torch.zeros(self.num_envs, device=self.device) # << 이 줄 추가
         
         # 에피소드 성공 판단 기준
-        self.EVAL_BATCH_SIZE = 20     # 20판마다 성적 평가
-        self.PROMOTION_RATE = 0.90     # 승률 90% 이상이면 레벨업 (20판 중 18승)
-        self.DEMOTION_RATE = 0.10      # 승률 40% 이하면 레벨다운 (20판 중 8승 이하)
-        
-        self.MIN_PVIEW_RATIO = 0.90  # 에피소드 길이의 90% 이상 유지
+        self.MIN_SUCCESS_RATIO = 0.90  # 에피소드 길이의 90% 이상 유지
         self.MAX_DISTANCE_ERROR = 0.10  # 평균 거리 오차 10cm 미만
-        self.MIN_TOTAL_REWARD = 200.0    # 에피소드 총 보상 최소 60.0 이상
+        self.MIN_TOTAL_REWARD = 400.0    # 에피소드 총 보상 최소 60.0 이상
         
-        # 1. 시야 유지 비율 (90% -> 50%로 점차 완화)
-        # self.LEVEL_THRESHOLDS_RATIO = torch.tensor([0.95, 0.90, 0.85, 0.80, 0.80], device=self.device)
-
-        # # 2. 거리 오차 허용 (10cm -> 25cm로 점차 완화)
-        # self.LEVEL_THRESHOLDS_DIST = torch.tensor([0.10, 0.15, 0.15, 0.20, 0.25], device=self.device)
+        # [신규] 9개 구역의 "이상적인 관절 각도"를 텐서로 미리 저장
+        # 순서를 정해서 리스트에 넣습니다. (인덱싱을 위해)
+        # 0:top_close, 1:top_middle, 2:top_far, ... 순서로 매핑한다고 가정
         
-        # # 3. 보상 점수 커트라인 (400점 -> 150점으로 완화)
-        # self.LEVEL_THRESHOLDS_REWARD = torch.tensor([400.0, 350.0, 300.0, 200.0, 200.0], device=self.device)
-        
-        
-        # 9개 구역의 "이상적인 관절 각도"를 텐서로 미리 저장
         self.zone_names_ordered = [
             "top_close", "top_middle", "top_far",
             "middle_close", "middle_middle", "middle_far",
@@ -1286,6 +1278,42 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         obj_rot_world = self.quat_mul(camera_rot_w, obj_rot_cam)
         
         return obj_pos_world, obj_rot_world
+        
+    def rand_obj_coordinate(self, env_ids: torch.Tensor):
+        num_resets = len(env_ids)
+        if num_resets == 0:
+            return
+
+        # 작업 공간 영역 정의 (단위: 미터)
+        max_reach = 0.700  # 최대 도달 반경 (이미지의 762mm)
+        min_reach = 0.350  # 데드 스페이스 반경 (조정 가능)
+
+        u = torch.rand(num_resets, device=self.device)
+        r = (u * (max_reach**3 - min_reach**3) + min_reach**3) ** (1.0 / 3.0)
+
+        theta = torch.rand(num_resets, device=self.device) * torch.pi - (torch.pi / 2)
+        v = torch.rand(num_resets, device=self.device)
+        phi = torch.acos(v)
+
+        x = r * torch.sin(phi) * torch.cos(theta)
+        y = r * torch.sin(phi) * torch.sin(theta)
+        z = r * torch.cos(phi) 
+        
+        # x_clamped = torch.clamp(x, min=x_limits[0], max=x_limits[1])
+        # y_clamped = torch.clamp(y, min=y_limits[0], max=y_limits[1])
+        # z_clamped = torch.clamp(z, min=z_limits[0], max=z_limits[1])
+
+        local_pos = torch.stack([x, y, z], dim=-1)
+        reset_pos = self.scene.env_origins[env_ids] + local_pos
+            
+        identity_rot = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(num_resets, 1)
+
+        # print("x,y,z:", reset_pos[0])
+        reset_pose = torch.cat([reset_pos, identity_rot], dim=-1)
+        zero_velocity = torch.zeros((num_resets, 6), device=self.device)
+
+        self._box.write_root_pose_to_sim(reset_pose, env_ids=env_ids)
+        self._box.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
         
     def _generate_positions_for_levels(self, levels_to_sample: torch.Tensor, num_to_sample: int) -> torch.Tensor:
         """주어진 레벨에 따라 가중치 샘플링으로 새로운 위치를 생성하는 헬퍼 함수"""
@@ -1542,92 +1570,67 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # --------------------------------------------------------------
                 # 규칙: 정해진 축(axis_modes)에서 끝과 끝을 오감. (중간에 랜덤 변경 없음)
                 if torch.any(mask_lv1):
-                    # 1. Level 1에 해당하는 데이터만 추출 (Size: K)
                     ids_lv1 = env_ids_to_update[mask_lv1]
+                    # __init__에 저장된 축 모드 불러오기 (에피소드 내내 고정)
                     axis_modes = self.level1_axis_mode[ids_lv1]
-
-                    # 2. Level 1용 임시 변수 추출
-                    t_x_lv1 = final_target_x[mask_lv1]
-                    t_y_lv1 = final_target_y[mask_lv1]
-                    t_z_lv1 = final_target_z[mask_lv1]
-                    
-                    c_x_lv1 = curr_x[mask_lv1]
-                    c_y_lv1 = curr_y[mask_lv1]
-                    c_z_lv1 = curr_z[mask_lv1]
 
                     x_min, x_max = rand_pos_range["x"]
                     y_min, y_max = rand_pos_range["y"]
                     z_min, z_max = rand_pos_range["z"]
 
                     # --- X축 왕복 ---
-                    # (axis_modes는 Size K이므로 바로 연산 가능)
-                    sub_cond_x = (axis_modes == 0)
-                    
-                    dist_to_max_x = torch.abs(c_x_lv1 - x_max)
-                    dist_to_min_x = torch.abs(c_x_lv1 - x_min)
+                    cond_x = mask_lv1 & (axis_modes == 0)
+                    # 현재 위치가 Max에 가까우면 Min으로, Min에 가까우면 Max로 목표 설정 (Flip)
+                    dist_to_max_x = torch.abs(curr_x[mask_lv1] - x_max)
+                    dist_to_min_x = torch.abs(curr_x[mask_lv1] - x_min)
                     next_x = torch.where(dist_to_max_x < dist_to_min_x, torch.tensor(x_min, device=self.device), torch.tensor(x_max, device=self.device))
 
-                    t_x_lv1 = torch.where(sub_cond_x, next_x, t_x_lv1)
-                    t_y_lv1 = torch.where(sub_cond_x, c_y_lv1, t_y_lv1) # Y 고정
-                    t_z_lv1 = torch.where(sub_cond_x, c_z_lv1, t_z_lv1) # Z 고정
+                    final_target_x = torch.where(cond_x, next_x, final_target_x)
+                    final_target_y = torch.where(cond_x, curr_y, final_target_y) # Y 고정
+                    final_target_z = torch.where(cond_x, curr_z, final_target_z) # Z 고정
 
                     # --- Y축 왕복 ---
-                    sub_cond_y = (axis_modes == 1)
-                    dist_to_max_y = torch.abs(c_y_lv1 - y_max)
-                    dist_to_min_y = torch.abs(c_y_lv1 - y_min)
+                    cond_y = mask_lv1 & (axis_modes == 1)
+                    dist_to_max_y = torch.abs(curr_y[mask_lv1] - y_max)
+                    dist_to_min_y = torch.abs(curr_y[mask_lv1] - y_min)
                     next_y = torch.where(dist_to_max_y < dist_to_min_y, torch.tensor(y_min, device=self.device), torch.tensor(y_max, device=self.device))
 
-                    t_x_lv1 = torch.where(sub_cond_y, c_x_lv1, t_x_lv1) # X 고정
-                    t_y_lv1 = torch.where(sub_cond_y, next_y, t_y_lv1)
-                    t_z_lv1 = torch.where(sub_cond_y, c_z_lv1, t_z_lv1) # Z 고정
+                    final_target_x = torch.where(cond_y, curr_x, final_target_x) # X 고정
+                    final_target_y = torch.where(cond_y, next_y, final_target_y)
+                    final_target_z = torch.where(cond_y, curr_z, final_target_z) # Z 고정
 
                     # --- Z축 왕복 ---
-                    sub_cond_z = (axis_modes == 2)
-                    dist_to_max_z = torch.abs(c_z_lv1 - z_max)
-                    dist_to_min_z = torch.abs(c_z_lv1 - z_min)
+                    cond_z = mask_lv1 & (axis_modes == 2)
+                    dist_to_max_z = torch.abs(curr_z[mask_lv1] - z_max)
+                    dist_to_min_z = torch.abs(curr_z[mask_lv1] - z_min)
                     next_z = torch.where(dist_to_max_z < dist_to_min_z, torch.tensor(z_min, device=self.device), torch.tensor(z_max, device=self.device))
 
-                    t_x_lv1 = torch.where(sub_cond_z, c_x_lv1, t_x_lv1) # X 고정
-                    t_y_lv1 = torch.where(sub_cond_z, c_y_lv1, t_y_lv1) # Y 고정
-                    t_z_lv1 = torch.where(sub_cond_z, next_z, t_z_lv1)
-                    
-                    # 3. 계산된 결과를 원본 텐서에 덮어쓰기
-                    final_target_x[mask_lv1] = t_x_lv1
-                    final_target_y[mask_lv1] = t_y_lv1
-                    final_target_z[mask_lv1] = t_z_lv1
+                    final_target_x = torch.where(cond_z, curr_x, final_target_x) # X 고정
+                    final_target_y = torch.where(cond_z, curr_y, final_target_y) # Y 고정
+                    final_target_z = torch.where(cond_z, next_z, final_target_z)
 
                 # --------------------------------------------------------------
-                # [Level 2] 2차원 연속 이동 (Continuous Planar Random Walk) - [수정됨]
+                # [Level 2] 2차원 연속 이동 (Continuous Planar Random Walk)
                 # --------------------------------------------------------------
+                # 규칙: 정해진 평면(plane_modes) 위에서 새로운 랜덤 목표로 이동.
                 if torch.any(mask_lv2):
-                    # 1. Level 2 데이터 추출
                     ids_lv2 = env_ids_to_update[mask_lv2]
+
+                    # __init__에 저장된 평면 모드 불러오기 (에피소드 내내 고정)
                     plane_modes = self.level2_plane_mode[ids_lv2]
-                    
-                    t_x_lv2 = final_target_x[mask_lv2]
-                    t_y_lv2 = final_target_y[mask_lv2]
-                    t_z_lv2 = final_target_z[mask_lv2]
-                    
-                    c_x_lv2 = curr_x[mask_lv2]
-                    c_y_lv2 = curr_y[mask_lv2]
-                    c_z_lv2 = curr_z[mask_lv2]
 
-                    # XY 평면 (Z 고정)
-                    sub_cond_xy = (plane_modes == 0)
-                    t_z_lv2 = torch.where(sub_cond_xy, c_z_lv2, t_z_lv2)
+                    # XY 평면 (Z 고정) -> Z는 직전 위치(curr_z) 유지, X/Y는 새로운 랜덤값
+                    cond_xy = mask_lv2 & (plane_modes == 0)
+                    final_target_z = torch.where(cond_xy, curr_z, final_target_z)
 
-                    # XZ 평면 (Y 고정)
-                    sub_cond_xz = (plane_modes == 1)
-                    t_y_lv2 = torch.where(sub_cond_xz, c_y_lv2, t_y_lv2)
+                    # XZ 평면 (Y 고정) -> Y는 직전 위치(curr_y) 유지, X/Z는 새로운 랜덤값
+                    cond_xz = mask_lv2 & (plane_modes == 1)
+                    final_target_y = torch.where(cond_xz, curr_y, final_target_y)
 
-                    # YZ 평면 (X 고정)
-                    sub_cond_yz = (plane_modes == 2)
-                    t_x_lv2 = torch.where(sub_cond_yz, c_x_lv2, t_x_lv2)
-                    
-                    # 2. 결과 덮어쓰기
-                    final_target_x[mask_lv2] = t_x_lv2
-                    final_target_y[mask_lv2] = t_y_lv2
-                    final_target_z[mask_lv2] = t_z_lv2
+                    # YZ 평면 (X 고정) -> X는 직전 위치(curr_x) 유지, Y/Z는 새로운 랜덤값
+                    cond_yz = mask_lv2 & (plane_modes == 2)
+                    final_target_x = torch.where(cond_yz, curr_x, final_target_x)
+
                 # --------------------------------------------------------------
                 # [Level 3+] 3차원 연속 이동 (Continuous Space Random Walk)
                 # --------------------------------------------------------------
@@ -1811,12 +1814,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         levels = self.current_reward_level
         fail_margin = torch.tensor([reward_curriculum_levels[l.item()]["fail_margin"] for l in levels], device=self.device)
         
-        depth_val = torch.abs(self.box_pos_cam[:, 2]) + 1e-6
-        physical_offset = torch.norm(self.box_pos_cam[:, [0, 1]], dim=-1)
+        depth_val = torch.abs(self.box_pos_cam[:, 0]) + 1e-6
+        physical_offset = torch.norm(self.box_pos_cam[:, [2, 1]], dim=-1)
         
         view_ratio = physical_offset / depth_val
         out_of_fov_mask = view_ratio > fail_margin
-        is_behind_mask = self.box_pos_cam[:, 2] <= 0 
+        is_behind_mask = self.box_pos_cam[:, 0] > 0 
 
         self.is_pview_fail = out_of_fov_mask | is_behind_mask
         self.is_object_visible_mask = ~self.is_pview_fail
@@ -1954,7 +1957,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         current_levels = self.current_reward_level[env_ids]
         mask_lv1 = (current_levels == 1)
         mask_lv2 = (current_levels == 2)
-                
+        mask_lv3_plus = (current_levels >= 3)
+        
         # ----------------------------------------------------------------------
         # [공통] 새로운 시작 위치(Start Position) 생성 (완전 랜덤)
         # ----------------------------------------------------------------------
@@ -2028,6 +2032,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             target_pos[mask_lv1, 2] = torch.where(cond_z, target_z_dest, target_pos[mask_lv1, 2])
 
         # --- Level 2+: 3차원 연속 이동 초기화 ---
+        # if torch.any(mask_lv2_plus):
+        #     ids_lv2 = env_ids[mask_lv2_plus]
+        #     num_lv2 = len(ids_lv2)
+            
+        #     # 그냥 완전히 새로운 랜덤 목표 생성
+        #     rand_target_x = torch.rand(num_lv2, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0]
+        #     rand_target_y = torch.rand(num_lv2, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0]
+        #     rand_target_z = torch.rand(num_lv2, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0]
+            
+        #     new_targets_lv2 = torch.stack([rand_target_x, rand_target_y, rand_target_z], dim=1)
+        #     target_pos[mask_lv2_plus] = new_targets_lv2
         if torch.any(mask_lv2):
             ids_lv2 = env_ids[mask_lv2]
             num_lv2 = len(ids_lv2)
@@ -2080,7 +2095,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             target_pos[mask_lv2, 1] = final_ty
             target_pos[mask_lv2, 2] = final_tz
         
+        
+        # ----------------------------------------------------------------------
         # [공통] 최종 목표 적용 및 이동 벡터 계산
+        # ----------------------------------------------------------------------
+        
         self.target_box_pos[env_ids] = target_pos + self.scene.env_origins[env_ids]
 
         direction = self.target_box_pos[env_ids] - self.new_box_pos_rand[env_ids]
@@ -2089,8 +2108,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         speed = self.obj_speed[env_ids].unsqueeze(-1)
         self.rand_pos_step[env_ids] = (direction / direction_norm * speed)
 
+        # ----------------------------------------------------------------------
         # [로봇 자세 초기화] (기존 코드 유지)
-        if training_mode:
+        # ----------------------------------------------------------------------
+        if training_mode == True:
             joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
             joint1_idx = self._robot.find_joints(["joint1"])[0]
             
@@ -2134,152 +2155,39 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
             # [핵심] 로봇 목표값 동기화 (튀는 현상 방지)
             self.robot_dof_targets[env_ids] = joint_pos 
+            
             self.episode_init_joint_pos[env_ids] = joint_pos
     
-    # def _perform_linear_reset(self, env_ids: torch.Tensor):
-    #     # 테스트 모드 시드 해제
-    #     if not training_mode:
-    #         new_seed = int(time.time() * 1000) % (2**32 - 1)
-    #         torch.manual_seed(new_seed)
-        
-    #     num_resets = len(env_ids)
-    #     if num_resets == 0:
-    #         return
-
-    #     # ----------------------------------------------------------------------
-    #     # [1] 랜덤 좌표 생성 (새로운 목표 지점용)
-    #     # ----------------------------------------------------------------------
-    #     rx = torch.rand(num_resets, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0]
-    #     ry = torch.rand(num_resets, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0]
-    #     rz = torch.rand(num_resets, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0]
-    #     rand_targets = torch.stack([rx, ry, rz], dim=1)
-
-    #     # ----------------------------------------------------------------------
-    #     # [2] 학습 모드 vs 테스트 모드 분기
-    #     # ----------------------------------------------------------------------
-    #     if training_mode:
-    #         # [학습 모드]: 무조건 랜덤 위치로 강제 이동 (Teleport)
-    #         reset_pos = rand_targets + self.scene.env_origins[env_ids]
-            
-    #         # 랜덤 회전
-    #         random_angles = torch.rand(num_resets, device=self.device) * 2 * torch.pi
-    #         reset_rot = torch.stack([
-    #             torch.cos(random_angles / 2),
-    #             torch.zeros(num_resets, device=self.device),
-    #             torch.zeros(num_resets, device=self.device),
-    #             torch.sin(random_angles / 2)  
-    #         ], dim=1)
-            
-    #         # 물리 엔진에 강제 적용
-    #         reset_pose = torch.cat([reset_pos, reset_rot], dim=-1)
-    #         zero_velocity = torch.zeros((num_resets, 6), device=self.device)
-            
-    #         self._box.write_root_pose_to_sim(reset_pose, env_ids=env_ids)
-    #         self._box.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
-            
-    #         # 내부 변수 리셋
-    #         self.new_box_pos_rand[env_ids] = reset_pos
-    #         self.current_box_pos[env_ids] = reset_pos
-    #         self.current_box_rot[env_ids] = reset_rot
-            
-    #         # 시작점을 랜덤 위치로 설정
-    #         start_pos_local = rand_targets
-
-    #     else:
-    #         # [테스트 모드]: 강제 이동 절대 금지 (단, 첫 실행 제외)
-            
-    #         # 현재 물체의 높이(Z) 확인
-    #         current_global_z = self.new_box_pos_rand[env_ids, 2]
-            
-    #         # Z가 0.01보다 작으면 "아직 스폰 안 됨(원점)" -> 이때만 강제 이동 허용
-    #         first_run_mask = (current_global_z < 0.01)
-    #         ids_first_run = env_ids[first_run_mask]
-            
-    #         if len(ids_first_run) > 0:
-    #             # 첫 실행인 애들만 랜덤 위치로 스폰
-    #             init_pos = rand_targets[first_run_mask] + self.scene.env_origins[ids_first_run]
-    #             init_rot = torch.tensor([1, 0, 0, 0], dtype=torch.float, device=self.device).repeat(len(ids_first_run), 1)
-                
-    #             init_pose = torch.cat([init_pos, init_rot], dim=-1)
-    #             zero_vel = torch.zeros((len(ids_first_run), 6), device=self.device)
-                
-    #             self._box.write_root_pose_to_sim(init_pose, env_ids=ids_first_run)
-    #             self._box.write_root_velocity_to_sim(zero_vel, env_ids=ids_first_run)
-                
-    #             self.new_box_pos_rand[ids_first_run] = init_pos
-            
-    #         # [핵심] 시작점은 무조건 "현재 물체의 위치" (강제 이동 X)
-    #         start_pos_local = self.new_box_pos_rand[env_ids] - self.scene.env_origins[env_ids]
-
-    #     # ----------------------------------------------------------------------
-    #     # [3] 다음 목표 설정 (항상 랜덤)
-    #     # ----------------------------------------------------------------------
-    #     # 현재 위치(start_pos_local)에서 새로운 랜덤 위치(rand_targets)로 이동하도록 설정
-    #     self.target_box_pos[env_ids] = rand_targets + self.scene.env_origins[env_ids]
-
-    #     # ----------------------------------------------------------------------
-    #     # [4] 이동 벡터(속도) 계산
-    #     # ----------------------------------------------------------------------
-    #     direction = self.target_box_pos[env_ids] - self.new_box_pos_rand[env_ids]
-    #     direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-        
-    #     # 속도 적용
-    #     speed = self.obj_speed[env_ids].unsqueeze(-1)
-    #     self.rand_pos_step[env_ids] = (direction / direction_norm * speed)
-
-    #     # ----------------------------------------------------------------------
-    #     # [5] 로봇 자세 리셋 (학습 때만)
-    #     # ----------------------------------------------------------------------
-    #     if training_mode:
-    #         # (기존 로봇 리셋 코드 유지)
-    #         joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
-    #         joint1_idx = self._robot.find_joints(["joint1"])[0]
-    #         YAW_CANDIDATE_ANGLES = { 15.0: math.radians(15.0), 45.0: math.radians(45.0), 75.0: math.radians(75.0) }
-    #         ANGLE_BOUNDARIES = [30.0, 60.0, 90.0]
-            
-    #         for i, env_id in enumerate(env_ids):
-    #             object_pos_local = start_pos_local[i]
-    #             obj_x, obj_y, obj_z = object_pos_local[0], object_pos_local[1], object_pos_local[2]
-                
-    #             if obj_x >= workspace_zones["x"]["far"]: x_zone = "far"
-    #             elif obj_x >= workspace_zones["x"]["middle"]: x_zone = "middle"
-    #             else: x_zone = "close"
-    #             if obj_z >= workspace_zones["z"]["top"]: z_zone = "top"
-    #             elif obj_z >= workspace_zones["z"]["bottom"]: z_zone = "middle"
-    #             else: z_zone = "bottom"
-                    
-    #             zone_key = f"{z_zone}_{x_zone}"
-    #             target_pose_dict = pose_candidate[zone_key]
-                
-    #             for joint_name, pos in target_pose_dict.items():
-    #                 if joint_name != "joint1":
-    #                     joint_idx = self._robot.find_joints(joint_name)[0]
-    #                     joint_pos[i, joint_idx] = pos
-                        
-    #             target_yaw_rad = torch.atan2(obj_y, obj_x)
-    #             abs_yaw_deg = torch.abs(torch.rad2deg(target_yaw_rad))
-    #             if abs_yaw_deg <= ANGLE_BOUNDARIES[0]: target_angle_deg = 15.0
-    #             elif abs_yaw_deg <= ANGLE_BOUNDARIES[1]: target_angle_deg = 45.0
-    #             else: target_angle_deg = 75.0
-    #             final_yaw_rad = YAW_CANDIDATE_ANGLES[target_angle_deg] * torch.sign(obj_y)
-    #             joint_pos[i, joint1_idx] = final_yaw_rad
-                
-    #         joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
-    #         joint_vel = torch.zeros_like(joint_pos)
-            
-    #         self.robot_dof_targets[env_ids] = joint_pos 
-    #         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-    #         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-    #         self.episode_init_joint_pos[env_ids] = joint_pos
-    
     def _reset_idx(self, env_ids: torch.Tensor | None):
+                
+        # current_reward_levels = self.current_reward_level[env_ids]
+        # avg_reward = self.episode_reward_buf[env_ids] / self.episode_length_buf[env_ids]
+
+        # # 2. 새로운 보상 커리큘럼의 임계값 가져오기
+        # success_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["success_multiplier"] for l in current_reward_levels], device=self.device)
+        # failure_multipliers = torch.tensor([reward_curriculum_levels[l.item()]["failure_multiplier"] for l in current_reward_levels], device=self.device)
+        
+        # success_thresholds_reward = self.baseline_avg_reward * success_multipliers
+        # failure_thresholds_reward = self.baseline_avg_reward * failure_multipliers 
+        
+        # success_mask_reward = avg_reward >= success_thresholds_reward
+        # failure_mask_reward = avg_reward < failure_thresholds_reward
+        
+        # # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
+        # self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
+        # # self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
+        
+        # self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
+        # self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
+              
         # [신규 로직] 복합 조건 평가
+        # 0으로 나누기 방지용 엡실론
         actual_lengths = self.episode_length_buf[env_ids].float() + 1e-6
 
         # 1. 성공률 (Tracking Ratio) 계산
         # (시야 유지 스텝 / 전체 에피소드 길이)
         success_ratio = self.success_steps_buf[env_ids] / actual_lengths
-        pass_ratio = success_ratio >= self.MIN_PVIEW_RATIO
+        pass_ratio = success_ratio >= self.MIN_SUCCESS_RATIO
 
         # 2. 평균 거리 오차 계산
         avg_distance = self.avg_distance_error_buf[env_ids] / actual_lengths
@@ -2291,186 +2199,68 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # [최종 성공 판단] 3가지 조건을 모두(AND) 만족해야 성공
         success_mask_reward = pass_ratio & pass_distance & pass_reward
+        
+        # [실패 판단] 성공하지 못하면 실패로 간주 (혹은 조건을 더 완화해서 설정 가능)
+        # 여기서는 단순하게 성공이 아니면 실패 카운트를 올리도록 설정 (엄격한 기준)
         failure_mask_reward = ~success_mask_reward
-        
-        # ---------------------------------------------------------------------
-        # [NEW] 승률 기반 레벨 이동 로직
-        # ---------------------------------------------------------------------
-        
-        # 1. 성공/실패 각각 카운트 누적 (초기화 없음)
-        self.success_count[env_ids] += success_mask_reward.long()
-        self.failure_count[env_ids] += failure_mask_reward.long()
-        
-        # 2. 총 시도 횟수 계산
-        total_attempts = self.success_count[env_ids] + self.failure_count[env_ids]
-        
-        # 3. 평가 주기(EVAL_BATCH_SIZE)가 된 환경들만 골라내기
-        # 예: 20판을 채운 환경들
-        check_mask = (total_attempts >= self.EVAL_BATCH_SIZE)
-        
-        if torch.any(check_mask):
-            check_env_ids = env_ids[check_mask]
-            
-            # 승률 계산 (성공 / 전체)
-            current_success_rate = self.success_count[check_env_ids].float() / total_attempts[check_env_ids].float()
-            
-            # A. 승급 심사 (90% 이상)
-            promote_mask = current_success_rate >= self.PROMOTION_RATE
-            if torch.any(promote_mask):
-                promote_ids = check_env_ids[promote_mask]
-                # 레벨업
-                self.current_reward_level[promote_ids] = (self.current_reward_level[promote_ids] + 1).clamp(max=self.max_reward_level)
-                # print(f"Environment {promote_ids[0]} promoted! Rate: {current_success_rate[promote_mask][0]:.2f}")
 
-            # B. 강등 심사 (40% 이하)
-            demote_mask = current_success_rate < self.DEMOTION_RATE
-            if torch.any(demote_mask):
-                demote_ids = check_env_ids[demote_mask]
-                # 레벨다운
-                self.current_reward_level[demote_ids] = (self.current_reward_level[demote_ids] - 1).clamp(min=0)
-            
-            # [중요] 평가가 끝난 환경들은 카운터 리셋 (다음 20판을 위해)
-            # 20판 채우면 무조건 리셋해야, 과거의 성적에 발목 잡히지 않음
-            self.success_count[check_env_ids] = 0
-            self.failure_count[check_env_ids] = 0
-        # ---------------------------------------------------------------------
+        # 디버깅용 출력 (필요시 주석 해제)
+        # if len(env_ids) > 0 and self.log_counter % self.LOG_INTERVAL == 0:
+        #     print(f"Debug Env 0 - Ratio: {success_ratio[0]:.2f}, Dist: {avg_distance[0]:.3f}, Reward: {total_reward[0]:.1f}")
+
+        # # 3. 보상 커리큘럼의 연속 성공/실패 카운터 업데이트
+        # self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
+        # self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
         
-        self.log_counter += 5
-        # if self.log_counter % self.LOG_INTERVAL == 0:
-        #     level_counts = torch.bincount(self.current_reward_level, minlength=self.max_reward_level + 1)
-            
-        #     # [추가] 1. 평균 승률 계산 (기존 코드 유지)
-        #     total_attempts = self.success_count + self.failure_count
-        #     valid_mask = total_attempts > 0
-        #     if torch.any(valid_mask):
-        #         avg_rate = (self.success_count[valid_mask].float() / total_attempts[valid_mask].float()).mean().item()
-        #     else:
-        #         avg_rate = 0.0
-            
-        #     # [추가] 현재 평균 몇 판째인지 계산 --------------------------------
-        #     avg_episodes = total_attempts.float().mean().item()
-        #     max_episodes = total_attempts.max().item()
-                
-        #     if len(env_ids) > 0:
-        #         # 리셋되는 환경들의 실제 에피소드 길이
-        #         current_actual_lengths = self.episode_length_buf[env_ids].float() + 1e-6
-                
-        #         # A. 평균 성공률 (Time Ratio: 시야 유지 비율)
-        #         # (성공 스텝 / 전체 길이)의 평균
-        #         avg_success_ratio_val = (self.success_steps_buf[env_ids] / current_actual_lengths).mean().item()
-                
-        #         # B. 평균 거리 오차 (Distance Error)
-        #         # (누적 거리 오차 / 전체 길이)의 평균
-        #         avg_distance_error_val = (self.avg_distance_error_buf[env_ids] / current_actual_lengths).mean().item()
-                
-        #         # C. 평균 총 보상 (Total Reward)
-        #         avg_total_reward_val = self.episode_reward_buf[env_ids].mean().item()
-        #     else:
-        #         # 리셋된 환경이 없을 경우 0.0 처리
-        #         avg_success_ratio_val = 0.0
-        #         avg_distance_error_val = 0.0
-        #         avg_total_reward_val = 0.0
+        # # 성공하면 실패 카운터 리셋, 실패하면 성공 카운터 리셋
+        # self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
+        # self.consecutive_successes_reward[env_ids] *= (1 - failure_mask_reward.long())
+        
+        # 1. 성공 시 +1
+        self.consecutive_successes_reward[env_ids] += success_mask_reward.long()
+        
+        # 2. 실패 시 -1 (단, 0보다는 작아지지 않게 clamp)
+        # 실패한 환경들만 1씩 뺌
+        self.consecutive_successes_reward[env_ids] -= failure_mask_reward.long()
+        self.consecutive_successes_reward[env_ids] = self.consecutive_successes_reward[env_ids].clamp(min=0)
 
-        #     print("=" * 60)
-        #     print(f"📊 Curriculum Level Distribution (Total: {self.num_envs})")
-        #     print(f"🔄 Progress: {avg_episodes:.1f} / {self.EVAL_BATCH_SIZE} episodes (Max: {max_episodes})")
-        #     print(f"📈 Level Up/Down Win Rate: {avg_rate * 100:.2f}% (Target: {self.PROMOTION_RATE*100:.0f}%)")
-        #     print("-" * 60)
-        #     print(f"🔍 [Episode Stats] Avg of {len(env_ids)} reset envs:")
-        #     print(f"   1. Success Ratio (View Time) : {avg_success_ratio_val * 100:.2f}%  (Target: > {self.MIN_PVIEW_RATIO*100:.0f}%)")
-        #     print(f"   2. Avg Distance Error        : {avg_distance_error_val * 100:.2f} cm (Target: < {self.MAX_DISTANCE_ERROR*100:.0f} cm)")
-        #     print(f"   3. Avg Total Reward          : {avg_total_reward_val:.2f}      (Target: > {self.MIN_TOTAL_REWARD:.1f})")
-        #     print("-" * 60)
-            
-        #     for level_idx, count in enumerate(level_counts):
-        #         count_val = count.item()
-        #         ratio = (count_val / self.num_envs) * 100
-        #         bar = "#" * int(ratio / 5) 
-        #         print(f"  Level {level_idx}: {count_val:4d} envs ({ratio:5.1f}%) | {bar}")
-        #     print("=" * 60)
-
-        #     self.log_counter = 0 # 카운터 초기화
+        # 3. 강등 로직용 실패 카운터는 별도로 유지
+        self.consecutive_failures_reward[env_ids] += failure_mask_reward.long()
+        self.consecutive_failures_reward[env_ids] *= (1 - success_mask_reward.long())
+        
+        self.log_counter += 1
         
         if self.log_counter % self.LOG_INTERVAL == 0:
+            avg_successes = torch.mean(self.consecutive_successes_reward.float()).item()
+            print(f"\n[Training Log] Avg Consecutive Successes: {avg_successes:.2f}")
+            
             level_counts = torch.bincount(self.current_reward_level, minlength=self.max_reward_level + 1)
-            
-            # [기존] 1. 평균 승률 계산
-            total_attempts = self.success_count + self.failure_count
-            valid_mask = total_attempts > 0
-            if torch.any(valid_mask):
-                avg_rate = (self.success_count[valid_mask].float() / total_attempts[valid_mask].float()).mean().item()
-            else:
-                avg_rate = 0.0
-            
-            # [기존] 현재 평균 몇 판째인지 계산
-            avg_episodes = total_attempts.float().mean().item()
-            max_episodes = total_attempts.max().item()
-                
-            # [기존] 전체 평균 통계 계산
-            if len(env_ids) > 0:
-                current_actual_lengths = self.episode_length_buf[env_ids].float() + 1e-6
-                
-                # A. 평균 성공률
-                avg_success_ratio_val = (self.success_steps_buf[env_ids] / current_actual_lengths).mean().item()
-                # B. 평균 거리 오차
-                avg_distance_error_val = (self.avg_distance_error_buf[env_ids] / current_actual_lengths).mean().item()
-                # C. 평균 총 보상
-                avg_total_reward_val = self.episode_reward_buf[env_ids].mean().item()
-            else:
-                avg_success_ratio_val = 0.0
-                avg_distance_error_val = 0.0
-                avg_total_reward_val = 0.0
-
-            print("=" * 80) # 구분선 길이 약간 늘림
+            print("episode_reward_buf :", self.episode_reward_buf)
+            print("=" * 40)
             print(f"📊 Curriculum Level Distribution (Total: {self.num_envs})")
-            print(f"🔄 Progress: {avg_episodes:.1f} / {self.EVAL_BATCH_SIZE} episodes (Max: {max_episodes})")
-            print(f"📈 Level Up/Down Win Rate: {avg_rate * 100:.2f}% (Target: {self.PROMOTION_RATE*100:.0f}%)")
-            print("-" * 80)
-            
-            # 1. 전체 평균 출력
-            print(f"🔍 [Global Stats] Avg of {len(env_ids)} reset envs:")
-            print(f"   Total  | Success: {avg_success_ratio_val * 100:6.2f}% | Dist: {avg_distance_error_val * 100:5.2f} cm | Reward: {avg_total_reward_val:6.1f}")
-            
-            print("-" * 80)
-            print("🔍 [Level-wise Stats]")
-
-            # 2. [추가됨] 각 레벨별 통계 계산 및 출력
-            if len(env_ids) > 0:
-                current_levels_reset = self.current_reward_level[env_ids] # 현재 리셋되는 환경들의 레벨
-                
-                # 각 레벨을 순회하며 통계 계산
-                for lvl in range(self.max_reward_level + 1):
-                    # 현재 리셋된 환경들 중, 해당 레벨(lvl)인 것들만 마스킹
-                    lvl_mask = (current_levels_reset == lvl)
-                    lvl_count = torch.sum(lvl_mask).item()
-                    
-                    if lvl_count > 0:
-                        # 해당 레벨의 데이터 추출
-                        # env_ids[lvl_mask]는 안됨. env_ids 자체가 인덱스이므로, 불리언 마스크를 사용하여 필터링해야 함
-                        # 올바른 방법: 값을 추출한 뒤 마스킹
-                        
-                        lvl_lengths = current_actual_lengths[lvl_mask]
-                        
-                        # A. 성공률
-                        lvl_success = (self.success_steps_buf[env_ids][lvl_mask] / lvl_lengths).mean().item()
-                        # B. 거리 오차
-                        lvl_dist = (self.avg_distance_error_buf[env_ids][lvl_mask] / lvl_lengths).mean().item()
-                        # C. 총 보상
-                        lvl_reward = self.episode_reward_buf[env_ids][lvl_mask].mean().item()
-                        
-                        print(f"   Level {lvl} ({lvl_count:3d}) | Success: {lvl_success * 100:6.2f}% | Dist: {lvl_dist * 100:5.2f} cm | Reward: {lvl_reward:6.1f}")
-            
-            print("-" * 80)
-            
-            # 레벨 분포 바 그래프 출력 (기존 코드)
             for level_idx, count in enumerate(level_counts):
                 count_val = count.item()
                 ratio = (count_val / self.num_envs) * 100
                 bar = "#" * int(ratio / 5) 
                 print(f"  Level {level_idx}: {count_val:4d} envs ({ratio:5.1f}%) | {bar}")
-            print("=" * 80)
+            print("=" * 40)
 
             self.log_counter = 0 # 카운터 초기화
+        
+        promotion_candidate_mask_reward = self.consecutive_successes_reward[env_ids] >= self.PROMOTION_COUNT_REWARD
+        
+        if torch.any(promotion_candidate_mask_reward):
+            promotion_env_ids = env_ids[promotion_candidate_mask_reward]
+            self.current_reward_level[promotion_env_ids] = (self.current_reward_level[promotion_env_ids] + 1).clamp(max=self.max_reward_level)
+            self.consecutive_successes_reward[promotion_env_ids] = 0
+            
+        demotion_candidate_mask_reward = self.consecutive_failures_reward[env_ids] >= self.DEMOTION_COUNT_REWARD
+        
+        if torch.any(demotion_candidate_mask_reward):
+            demotion_env_ids = env_ids[demotion_candidate_mask_reward]
+            self.current_reward_level[demotion_env_ids] = (self.current_reward_level[demotion_env_ids] - 1).clamp(min=0)
+            self.consecutive_failures_reward[demotion_env_ids] = 0
+            self.consecutive_successes_reward[demotion_env_ids] = 0
         
         self.episode_reward_buf[env_ids] = 0.0
         self.avg_distance_error_buf[env_ids] = 0.0
@@ -2517,21 +2307,21 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             if len(env_ids_level_0) > 0:
                 self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
                 self.obj_speed[env_ids_level_0] = 0.0
-                self.action_scale_tensor[env_ids_level_0] = 2.0 
+                self.action_scale_tensor[env_ids_level_0] = 0.5 
                 self._perform_static_reset(env_ids_level_0) 
 
             # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 먼저
             if len(env_ids_level_1) > 0:
                 self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
                 self.obj_speed[env_ids_level_1] = 0.0005 # 물체 이동 시작
-                self.action_scale_tensor[env_ids_level_1] = 2.0 # 로봇 속도 유지
+                self.action_scale_tensor[env_ids_level_1] = 0.5 # 로봇 속도 유지
                 self._perform_linear_reset(env_ids_level_1)
 
             # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - 다음 로봇 속도 증가
             if len(env_ids_level_2) > 0:
                 self.object_move_state[env_ids_level_2] = self.MOVE_STATE_LINEAR
                 self.obj_speed[env_ids_level_2] = 0.001
-                self.action_scale_tensor[env_ids_level_2] = 2.0 # 로봇 속도 증가
+                self.action_scale_tensor[env_ids_level_2] = 1.0 # 로봇 속도 증가
                 self._perform_linear_reset(env_ids_level_2)
 
             # [신규] Level 3: (Moving Random, Robot Speed 1.0) - 다음 물체 속도 증가
@@ -2542,7 +2332,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 random_speeds = torch.rand(num_level_3, device=self.device) * (0.0015 - 0.0007) + 0.0007
                 self.obj_speed[env_ids_level_3] = 0.0015
 
-                self.action_scale_tensor[env_ids_level_3] = 2.0 # 로봇 속도 유지
+                self.action_scale_tensor[env_ids_level_3] = 1.0 # 로봇 속도 유지
                 self._perform_linear_reset(env_ids_level_3)
 
             # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
@@ -2552,10 +2342,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 num_level_4_plus = len(env_ids_level_4_plus)
                 random_speeds = torch.rand(num_level_4_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
                 self.obj_speed[env_ids_level_4_plus] = random_speeds
-                self.action_scale_tensor[env_ids_level_4_plus] = 2.0 # 로봇 속도 증가
+                self.action_scale_tensor[env_ids_level_4_plus] = 1.5 # 로봇 속도 증가
                 self._perform_linear_reset(env_ids_level_4_plus)
 
         else: # training_mode == False (테스트 모드)
+            # print("action_scale_tensor :", self.action_scale_tensor[env_ids])
             self.action_scale_tensor[env_ids] = 2.0 # (4.0이 적용됨)
             
             if object_move == ObjectMoveType.STATIC:
