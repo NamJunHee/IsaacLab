@@ -80,9 +80,9 @@ robot_fix = False
 init_reward = True
 reset_flag = True
 
-add_episode_length = 200
+# add_episode_length = 200
 # add_episode_length = 300
-# add_episode_length = -800
+add_episode_length = -800
 # add_episode_length = -900
 # add_episode_length = -500
 
@@ -415,7 +415,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         
     elif robot_type == RobotType.UF:
         action_space = 6
-        observation_space = 17
+        # observation_space = 17
+        observation_space = 21
         
     elif robot_type == RobotType.DOOSAN:
         action_space = 8
@@ -793,7 +794,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                     max_linear_velocity=1000.0,
                     max_depenetration_velocity=5.0,
                     disable_gravity=True,
-                    kinematic_enabled = True,
+                    kinematic_enabled = False,
                 ),
             ),
     )
@@ -856,8 +857,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.baseline_avg_reward = 0.05 # 계산된 기준 보상값
 
         # 2. 보상 커리큘럼을 위한 독립적인 상태 변수들
-        self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        # self.current_reward_level = torch.full((self.num_envs,), 0, dtype=torch.long, device=self.device)
+        # self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.current_reward_level = torch.full((self.num_envs,), 1, dtype=torch.long, device=self.device)
+        
         # self.consecutive_successes_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # self.consecutive_failures_reward = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # self.PROMOTION_COUNT_REWARD = 20
@@ -1135,6 +1137,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # # 3. 보상 점수 커트라인 (400점 -> 150점으로 완화)
         # self.LEVEL_THRESHOLDS_REWARD = torch.tensor([400.0, 350.0, 300.0, 200.0, 200.0], device=self.device)
         
+        # [추가] 속도 변화 타이머 (각 환경별로 다른 시간차를 가짐)
+        self.speed_change_timer = torch.zeros(self.num_envs, device=self.device)
+        
+        # [추가] 현재 적용 중인 속도 노이즈 비율 (기본 1.0 = 100%)
+        self.current_speed_factor = torch.ones(self.num_envs, device=self.device)
         
         # 9개 구역의 "이상적인 관절 각도"를 텐서로 미리 저장
         self.zone_names_ordered = [
@@ -1493,17 +1500,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         linear_env_ids = torch.where(linear_move_mask)[0]
 
         if len(linear_env_ids) > 0:
-            # LINEAR 환경들의 현재 위치와 목표 위치를 가져옵니다.
-            current_pos = self.new_box_pos_rand[linear_env_ids]
-            target_pos = self.target_box_pos[linear_env_ids]
+            # 2. 현재 시뮬레이션 상의 '실제' 위치 가져오기 (매우 중요!)
+            # 기존에는 self.new_box_pos_rand 변수로 위치를 따로 관리했지만,
+            # 이제는 물리 엔진이 이동시키므로 실제 위치를 조회해야 오차가 없습니다.
+            current_pos_world = self._box.data.root_pos_w[linear_env_ids] # (N, 3)
             
-            # 목표에 도달했는지 확인합니다.
-            distance_to_target = torch.norm(target_pos - current_pos, p=2, dim=-1)
+            # 3. 목표 도달 확인 (거리 1cm 미만)
+            target_pos = self.target_box_pos[linear_env_ids]
+            distance_to_target = torch.norm(target_pos - current_pos_world, p=2, dim=-1)
             reached_target_mask = (distance_to_target < 0.01)
 
+            # --- [A] 목표 도달 시: 새로운 목표 설정 (기존 로직과 유사하지만 변수 정리) ---
             if torch.any(reached_target_mask):
-                # 4.1. 업데이트할 환경 인덱스 가져오기
                 env_ids_to_update = linear_env_ids[reached_target_mask]
+                
                 num_to_update = len(env_ids_to_update)
                 current_levels = self.current_reward_level[env_ids_to_update]
 
@@ -1625,37 +1635,238 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     final_target_x[mask_lv2] = t_x_lv2
                     final_target_y[mask_lv2] = t_y_lv2
                     final_target_z[mask_lv2] = t_z_lv2
-                # --------------------------------------------------------------
-                # [Level 3+] 3차원 연속 이동 (Continuous Space Random Walk)
-                # --------------------------------------------------------------
-                # 별도 처리 없음 (이미 final_target_x, y, z가 3D 랜덤값으로 초기화됨)
-                # 목표에 도달하면 즉시 3D 공간상의 새로운 랜덤 목표를 설정하고 이동을 이어감.
-
-                # --------------------------------------------------------------
-                # [공통] 목표 적용 및 벡터 재계산
-                # --------------------------------------------------------------
 
                 new_targets = torch.stack([final_target_x, final_target_y, final_target_z], dim=1)
 
-                # 목표 위치 업데이트 (순간이동 아님! 다음 경유지 설정)
                 self.target_box_pos[env_ids_to_update] = new_targets + self.scene.env_origins[env_ids_to_update]
 
-                # 이동 방향 및 속도 재계산
-                direction = self.target_box_pos[linear_env_ids] - self.new_box_pos_rand[linear_env_ids]
-                direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+            # 1. 타이머 감소
+            self.speed_change_timer[linear_env_ids] -= self.dt
+            
+            # 2. 타이머가 0 이하로 떨어진 환경들 찾기 (속도를 바꿀 때가 된 환경들)
+            # 주의: linear_env_ids 중에서 골라내야 하므로 인덱싱에 주의해야 합니다.
+            # 전체 환경 기준 마스크를 씁니다.
+            time_up_mask = (self.speed_change_timer <= 0.0) & linear_move_mask
+            env_ids_to_change_speed = torch.where(time_up_mask)[0]
+            
+            if len(env_ids_to_change_speed) > 0:
+                # 3. 새로운 노이즈 비율 생성 (0.7 ~ 1.3)
+                new_noise = (torch.rand(len(env_ids_to_change_speed), device=self.device) * 0.6) + 0.7
+                self.current_speed_factor[env_ids_to_change_speed] = new_noise
+                
+                # 4. 타이머 리셋 (0.5초 ~ 1.5초 사이 랜덤 유지)
+                # 즉, 한 번 속도가 변하면 최소 0.5초, 최대 1.5초 동안은 그 속도를 유지함
+                new_duration = (torch.rand(len(env_ids_to_change_speed), device=self.device) * 1.0) + 0.5
+                self.speed_change_timer[env_ids_to_change_speed] = new_duration
 
-                speed = self.obj_speed[linear_env_ids].unsqueeze(-1)
-                self.rand_pos_step[linear_env_ids] = (direction / direction_norm * speed)
+            # --- [C] 최종 속도 명령 생성 ---
             
-            # *모든* LINEAR 환경의 위치를 이동 스텝만큼 업데이트합니다.
-            self.new_box_pos_rand[linear_env_ids] += self.rand_pos_step[linear_env_ids]
+            # 1) 방향 벡터 (매 프레임 갱신 - 타겟을 향해 계속 조향해야 하므로)
+            target_pos_updated = self.target_box_pos[linear_env_ids]
+            direction = target_pos_updated - current_pos_world
+            direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+            unit_direction = direction / direction_norm
             
-            # 시뮬레이션에 적용합니다.
-            new_box_rot_rand = self.current_box_rot[linear_env_ids] 
-            new_box_pose_rand = torch.cat([self.new_box_pos_rand[linear_env_ids], new_box_rot_rand], dim=-1)
+            # 2) 속도 크기 (저장된 factor 사용)
+            # 매 프레임 바뀌는 게 아니라, 타이머에 의해 갱신된 값을 계속 사용
+            base_speed = self.obj_speed[linear_env_ids].unsqueeze(-1)
+            active_noise = self.current_speed_factor[linear_env_ids].unsqueeze(-1)
             
-            # env_ids 파라미터를 사용하여 LINEAR 환경들만 업데이트합니다.
-            self._box.write_root_pose_to_sim(new_box_pose_rand, env_ids=linear_env_ids)
+            final_speed = base_speed * active_noise
+            
+            lin_vel = unit_direction * final_speed
+            
+            # 3) 물리 엔진 적용
+            velocity_command = torch.zeros((len(linear_env_ids), 6), device=self.device)
+            velocity_command[:, 0:3] = lin_vel
+            self._box.write_root_velocity_to_sim(velocity_command, env_ids=linear_env_ids)
+
+            
+            # 1) 방향 벡터 계산 (목표점 - 현재위치)
+            # 타겟이 변경되었을 수 있으므로 다시 가져옵니다.
+            # target_pos_updated = self.target_box_pos[linear_env_ids]
+            # direction = target_pos_updated - current_pos_world
+            
+            # # 2) 방향 정규화 (Unit Vector)
+            # direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+            # unit_direction = direction / direction_norm
+            
+            # # 3) 속도 벡터 생성 (단위 벡터 * 설정된 속력)
+            # speed = self.obj_speed[linear_env_ids].unsqueeze(-1)
+            # noise_scale = (torch.rand_like(speed) * 0.6) + 0.7
+            # lin_vel = unit_direction * speed #* noise_scale # (N, 3)
+            
+            # # 4) Isaac Lab에 보낼 6차원 속도 명령 생성 (vx, vy, vz, wx, wy, wz)
+            # # 회전 속도(w)는 0으로 설정하여 회전하지 않게 함
+            # velocity_command = torch.zeros((len(linear_env_ids), 6), device=self.device)
+            # velocity_command[:, 0:3] = lin_vel
+            
+            # # 5) 물리 엔진에 속도 적용! (Teleport 아님)
+            # self._box.write_root_velocity_to_sim(velocity_command, env_ids=linear_env_ids)
+                
+            # # LINEAR 환경들의 현재 위치와 목표 위치를 가져옵니다.
+            # current_pos = self.new_box_pos_rand[linear_env_ids]
+            # target_pos = self.target_box_pos[linear_env_ids]
+            
+            # # 목표에 도달했는지 확인합니다.
+            # distance_to_target = torch.norm(target_pos - current_pos, p=2, dim=-1)
+            # reached_target_mask = (distance_to_target < 0.01)
+
+            # if torch.any(reached_target_mask):
+            #     # 4.1. 업데이트할 환경 인덱스 가져오기
+            #     env_ids_to_update = linear_env_ids[reached_target_mask]
+            #     num_to_update = len(env_ids_to_update)
+            #     current_levels = self.current_reward_level[env_ids_to_update]
+
+            #     # --------------------------------------------------------------
+            #     # [준비] 다음 목표 생성을 위한 랜덤 후보군 & 기준 위치 설정
+            #     # --------------------------------------------------------------
+
+            #     # 1. 전체 범위 내 랜덤 좌표 생성 (Level 2, 3용 차기 목표 후보)
+            #     rand_x = torch.rand(num_to_update, device=self.device) * (rand_pos_range["x"][1] - rand_pos_range["x"][0]) + rand_pos_range["x"][0]
+            #     rand_y = torch.rand(num_to_update, device=self.device) * (rand_pos_range["y"][1] - rand_pos_range["y"][0]) + rand_pos_range["y"][0]
+            #     rand_z = torch.rand(num_to_update, device=self.device) * (rand_pos_range["z"][1] - rand_pos_range["z"][0]) + rand_pos_range["z"][0]
+
+            #     # 2. 기준 위치 가져오기 (축 고정용)
+            #     # "축을 고정한다" = "방금 도달한 목표 위치(직전 Target)를 그대로 유지한다"
+            #     # (현재 물체 위치인 new_box_pos_rand 대신 target_box_pos를 써야 오차가 누적되지 않음)
+            #     curr_target_world = self.target_box_pos[env_ids_to_update]
+            #     curr_target_local = curr_target_world - self.scene.env_origins[env_ids_to_update]
+
+            #     curr_x = curr_target_local[:, 0]
+            #     curr_y = curr_target_local[:, 1]
+            #     curr_z = curr_target_local[:, 2]
+
+            #     # 3. 최종 목표 변수 초기화 (기본값: 3D Random)
+            #     final_target_x = rand_x
+            #     final_target_y = rand_y
+            #     final_target_z = rand_z
+
+            #     mask_lv1 = (current_levels == 1)
+            #     mask_lv2 = (current_levels == 2)
+
+            #     # --------------------------------------------------------------
+            #     # [Level 1] 1차원 왕복 운동 (Reciprocating)
+            #     # --------------------------------------------------------------
+            #     # 규칙: 정해진 축(axis_modes)에서 끝과 끝을 오감. (중간에 랜덤 변경 없음)
+            #     if torch.any(mask_lv1):
+            #         # 1. Level 1에 해당하는 데이터만 추출 (Size: K)
+            #         ids_lv1 = env_ids_to_update[mask_lv1]
+            #         axis_modes = self.level1_axis_mode[ids_lv1]
+
+            #         # 2. Level 1용 임시 변수 추출
+            #         t_x_lv1 = final_target_x[mask_lv1]
+            #         t_y_lv1 = final_target_y[mask_lv1]
+            #         t_z_lv1 = final_target_z[mask_lv1]
+                    
+            #         c_x_lv1 = curr_x[mask_lv1]
+            #         c_y_lv1 = curr_y[mask_lv1]
+            #         c_z_lv1 = curr_z[mask_lv1]
+
+            #         x_min, x_max = rand_pos_range["x"]
+            #         y_min, y_max = rand_pos_range["y"]
+            #         z_min, z_max = rand_pos_range["z"]
+
+            #         # --- X축 왕복 ---
+            #         # (axis_modes는 Size K이므로 바로 연산 가능)
+            #         sub_cond_x = (axis_modes == 0)
+                    
+            #         dist_to_max_x = torch.abs(c_x_lv1 - x_max)
+            #         dist_to_min_x = torch.abs(c_x_lv1 - x_min)
+            #         next_x = torch.where(dist_to_max_x < dist_to_min_x, torch.tensor(x_min, device=self.device), torch.tensor(x_max, device=self.device))
+
+            #         t_x_lv1 = torch.where(sub_cond_x, next_x, t_x_lv1)
+            #         t_y_lv1 = torch.where(sub_cond_x, c_y_lv1, t_y_lv1) # Y 고정
+            #         t_z_lv1 = torch.where(sub_cond_x, c_z_lv1, t_z_lv1) # Z 고정
+
+            #         # --- Y축 왕복 ---
+            #         sub_cond_y = (axis_modes == 1)
+            #         dist_to_max_y = torch.abs(c_y_lv1 - y_max)
+            #         dist_to_min_y = torch.abs(c_y_lv1 - y_min)
+            #         next_y = torch.where(dist_to_max_y < dist_to_min_y, torch.tensor(y_min, device=self.device), torch.tensor(y_max, device=self.device))
+
+            #         t_x_lv1 = torch.where(sub_cond_y, c_x_lv1, t_x_lv1) # X 고정
+            #         t_y_lv1 = torch.where(sub_cond_y, next_y, t_y_lv1)
+            #         t_z_lv1 = torch.where(sub_cond_y, c_z_lv1, t_z_lv1) # Z 고정
+
+            #         # --- Z축 왕복 ---
+            #         sub_cond_z = (axis_modes == 2)
+            #         dist_to_max_z = torch.abs(c_z_lv1 - z_max)
+            #         dist_to_min_z = torch.abs(c_z_lv1 - z_min)
+            #         next_z = torch.where(dist_to_max_z < dist_to_min_z, torch.tensor(z_min, device=self.device), torch.tensor(z_max, device=self.device))
+
+            #         t_x_lv1 = torch.where(sub_cond_z, c_x_lv1, t_x_lv1) # X 고정
+            #         t_y_lv1 = torch.where(sub_cond_z, c_y_lv1, t_y_lv1) # Y 고정
+            #         t_z_lv1 = torch.where(sub_cond_z, next_z, t_z_lv1)
+                    
+            #         # 3. 계산된 결과를 원본 텐서에 덮어쓰기
+            #         final_target_x[mask_lv1] = t_x_lv1
+            #         final_target_y[mask_lv1] = t_y_lv1
+            #         final_target_z[mask_lv1] = t_z_lv1
+
+            #     # --------------------------------------------------------------
+            #     # [Level 2] 2차원 연속 이동 (Continuous Planar Random Walk) - [수정됨]
+            #     # --------------------------------------------------------------
+            #     if torch.any(mask_lv2):
+            #         # 1. Level 2 데이터 추출
+            #         ids_lv2 = env_ids_to_update[mask_lv2]
+            #         plane_modes = self.level2_plane_mode[ids_lv2]
+                    
+            #         t_x_lv2 = final_target_x[mask_lv2]
+            #         t_y_lv2 = final_target_y[mask_lv2]
+            #         t_z_lv2 = final_target_z[mask_lv2]
+                    
+            #         c_x_lv2 = curr_x[mask_lv2]
+            #         c_y_lv2 = curr_y[mask_lv2]
+            #         c_z_lv2 = curr_z[mask_lv2]
+
+            #         # XY 평면 (Z 고정)
+            #         sub_cond_xy = (plane_modes == 0)
+            #         t_z_lv2 = torch.where(sub_cond_xy, c_z_lv2, t_z_lv2)
+
+            #         # XZ 평면 (Y 고정)
+            #         sub_cond_xz = (plane_modes == 1)
+            #         t_y_lv2 = torch.where(sub_cond_xz, c_y_lv2, t_y_lv2)
+
+            #         # YZ 평면 (X 고정)
+            #         sub_cond_yz = (plane_modes == 2)
+            #         t_x_lv2 = torch.where(sub_cond_yz, c_x_lv2, t_x_lv2)
+                    
+            #         # 2. 결과 덮어쓰기
+            #         final_target_x[mask_lv2] = t_x_lv2
+            #         final_target_y[mask_lv2] = t_y_lv2
+            #         final_target_z[mask_lv2] = t_z_lv2
+            #     # --------------------------------------------------------------
+            #     # [Level 3+] 3차원 연속 이동 (Continuous Space Random Walk)
+            #     # --------------------------------------------------------------
+            #     # 별도 처리 없음 (이미 final_target_x, y, z가 3D 랜덤값으로 초기화됨)
+            #     # 목표에 도달하면 즉시 3D 공간상의 새로운 랜덤 목표를 설정하고 이동을 이어감.
+
+            #     # --------------------------------------------------------------
+            #     # [공통] 목표 적용 및 벡터 재계산
+            #     # --------------------------------------------------------------
+
+            #     new_targets = torch.stack([final_target_x, final_target_y, final_target_z], dim=1)
+
+            #     # 목표 위치 업데이트 (순간이동 아님! 다음 경유지 설정)
+            #     self.target_box_pos[env_ids_to_update] = new_targets + self.scene.env_origins[env_ids_to_update]
+
+            #     # 이동 방향 및 속도 재계산
+            #     direction = self.target_box_pos[linear_env_ids] - self.new_box_pos_rand[linear_env_ids]
+            #     direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
+
+            #     speed = self.obj_speed[linear_env_ids].unsqueeze(-1)
+            #     self.rand_pos_step[linear_env_ids] = (direction / direction_norm * speed)
+            
+            # # *모든* LINEAR 환경의 위치를 이동 스텝만큼 업데이트합니다.
+            # self.new_box_pos_rand[linear_env_ids] += self.rand_pos_step[linear_env_ids]
+            
+            # # 시뮬레이션에 적용합니다.
+            # new_box_rot_rand = self.current_box_rot[linear_env_ids] 
+            # new_box_pose_rand = torch.cat([self.new_box_pos_rand[linear_env_ids], new_box_rot_rand], dim=-1)
+            
+            # # env_ids 파라미터를 사용하여 LINEAR 환경들만 업데이트합니다.
+            # self._box.write_root_pose_to_sim(new_box_pose_rand, env_ids=linear_env_ids)
         
     def _apply_action(self):
         
@@ -1984,11 +2195,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.current_box_pos[env_ids] = start_pos_world
         self.current_box_rot[env_ids] = reset_rot
 
-        # ----------------------------------------------------------------------
-        # [목표 설정] 레벨별 초기 목표(First Target) 설정
-        # ----------------------------------------------------------------------
-        
-        # 최종 목표를 담을 변수 (일단 현재 위치로 초기화)
         target_pos = start_pos.clone()
         
         # --- Level 1: 1차원 왕복 운동 초기화 ---
@@ -2335,7 +2541,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 먼저
                 if len(env_ids_level_1) > 0:
                     self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
-                    self.obj_speed[env_ids_level_1] = 0.0005 # 물체 이동 시작
+                    self.obj_speed[env_ids_level_1] = 0.1 # 물체 이동 시작
                     self.action_scale_tensor[env_ids_level_1] = 1.0 # 로봇 속도 유지
                     self._perform_linear_reset(env_ids_level_1)
 
@@ -2656,15 +2862,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         global robot_action
         
-        to_target = self.box_grasp_pos - self.robot_grasp_pos
+        # to_target = self.box_grasp_pos - self.robot_grasp_pos
+        camera_pos_w, _ = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+        to_target = self.box_grasp_pos - camera_pos_w
 
+        # a = self._box.data.body_link_pos_w[:, 0, 0:3]
+        # b = self._box.data.body_link_vel_w[:, 0, 0:3]
+        
+        # print("body_link_pos_w :", a)
+        # print("body_link_vel_w :", b)
+        
         obs = torch.cat(
             (
                 dof_pos_scaled,
                 self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
                 to_target,
-                self._box.data.body_link_pos_w[:, 0, 2].unsqueeze(-1),
-                self._box.data.body_link_vel_w[:, 0, 2].unsqueeze(-1),
+                self._box.data.body_link_pos_w[:, 0, 0:3],
+                self._box.data.body_link_vel_w[:, 0, 0:3],
             ),
             dim=-1,
         )
