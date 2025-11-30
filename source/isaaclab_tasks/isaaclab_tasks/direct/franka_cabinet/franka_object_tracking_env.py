@@ -86,8 +86,8 @@ robot_fix = False
 init_reward = True
 reset_flag = True
 
-# add_episode_length = 200
-add_episode_length = -800
+add_episode_length = 200
+# add_episode_length = -800
 # add_episode_length = -900
 # add_episode_length = -500
 
@@ -105,10 +105,80 @@ rand_pos_range = {
     # "z" : (  0.0, 0.08),
 }
 
+# reward_curriculum_levels = [
+#     # Level 0: (Static, Robot Speed 0.5) - 가장 넓은 마진
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
+#         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
+#         "y_range" : ( -0.35, 0.35),
+
+#         "distance_margin" : 0.15,
+#         "vector_align_margin" : math.radians(20.0),
+#         "position_align_margin" : 0.20,
+#         "pview_margin" : 0.25,
+#         "fail_margin" : 0.35,
+#     },
+#     # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 "먼저" 학습
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
+#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
+#         "y_range" : ( -0.35, 0.35),
+
+#         "distance_margin" : 0.20, # 마진 약간 좁힘
+#         "vector_align_margin" : math.radians(25.0),
+#         "position_align_margin" : 0.25,
+#         "pview_margin" : 0.25,
+#         "fail_margin" : 0.35,
+#     },
+#     # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - "그다음" 로봇 속도 증가
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
+#         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
+#         "y_range": (-0.35, 0.35),
+
+#         "distance_margin" : 0.15,
+#         "vector_align_margin" : math.radians(20.0),
+#         "position_align_margin" : 0.20,
+#         "pview_margin" : 0.25,
+#         "fail_margin" : 0.35
+#     },
+#     # [신규] Level 3: (Moving Random, Robot Speed 1.0) - "그다음" 물체 속도 증가
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
+#         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
+#         "y_range": (-0.35, 0.35),
+
+#         "distance_margin" : 0.10,
+#         "vector_align_margin" : math.radians(15.0),
+#         "position_align_margin" : 0.15,
+#         "pview_margin" : 0.20,
+#         "fail_margin" : 0.30
+#     },
+#     # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
+#     {
+#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 1.0, "joint_penalty": 0.5, "blind_penalty": 0.5},
+#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
+#         "y_range": (-0.35, 0.35),
+
+#         "distance_margin" : 0.10,
+#         "vector_align_margin" : math.radians(10.0),
+#         "position_align_margin" : 0.10,
+#         "pview_margin" : 0.15,
+#         "fail_margin" : 0.30,
+#     },
+# ]
+
 reward_curriculum_levels = [
-    # Level 0: (Static, Robot Speed 0.5) - 가장 넓은 마진
+    # Level 0: (Static) - 기초 단계부터 공격적으로 설정
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
+        "reward_scales": {
+            "distance": 4.0,      # [핵심] 1.0 -> 4.0 (접근이 최우선)
+            "pview": 1.0,         # 1.0 유지 (Gating을 위해 유지)
+            "vector_align": 0.5,  # 0.6 -> 0.5 (각도는 나중에)
+            "position_align": 0.5,# 0.8 -> 0.5 (중앙 정렬보다 거리 좁히기가 우선)
+            "joint_penalty": 1.0,# [핵심] 1.0 -> 0.05 (팔 움직이는 비용 무료화)
+            "blind_penalty": 0.5  # [상향] 0.1 -> 0.5 (놓치면 치명타)
+        },
         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
         "y_range" : ( -0.35, 0.35),
 
@@ -118,21 +188,35 @@ reward_curriculum_levels = [
         "pview_margin" : 0.25,
         "fail_margin" : 0.35,
     },
-    # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 "먼저" 학습
+    # Level 1: (Moving Slow) - 추적 시작
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
+        "reward_scales": {
+            "distance": 4.0,      # 접근 강조
+            "pview": 1.0,
+            "vector_align": 0.5,
+            "position_align": 0.5,
+            "joint_penalty": 1.0,# 움직임 자유 보장
+            "blind_penalty": 0.5  # 놓치지 마라
+        },
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range" : ( -0.35, 0.35),
 
-        "distance_margin" : 0.20, # 마진 약간 좁힘
+        "distance_margin" : 0.20, 
         "vector_align_margin" : math.radians(25.0),
         "position_align_margin" : 0.25,
         "pview_margin" : 0.25,
         "fail_margin" : 0.35,
     },
-    # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - "그다음" 로봇 속도 증가
+    # Level 2: (Moving Planar) - 여기가 고비였음
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
+        "reward_scales": {
+            "distance": 4.0,      # 멀어지는 물체 잡으려면 보상이 커야 함
+            "pview": 1.0,
+            "vector_align": 0.5,
+            "position_align": 0.5,
+            "joint_penalty": 1.0,# 멀리 뻗어도 감점 없게 함
+            "blind_penalty": 0.7
+        },
         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
 
@@ -142,9 +226,16 @@ reward_curriculum_levels = [
         "pview_margin" : 0.25,
         "fail_margin" : 0.35
     },
-    # [신규] Level 3: (Moving Random, Robot Speed 1.0) - "그다음" 물체 속도 증가
+    # Level 3: (Moving Fast)
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
+        "reward_scales": {
+            "distance": 4.0, 
+            "pview": 1.0, 
+            "vector_align": 0.6, # 상위 레벨이니 정밀도 약간 요구
+            "position_align": 0.6, 
+            "joint_penalty": 1.0, 
+            "blind_penalty": 1.0  # 속도가 빠르니 놓치는 거에 더 엄격하게
+        },
         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
 
@@ -154,9 +245,16 @@ reward_curriculum_levels = [
         "pview_margin" : 0.20,
         "fail_margin" : 0.30
     },
-    # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
+    # Level 4: (Moving Very Fast)
     {
-        "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 1.0, "joint_penalty": 0.5, "blind_penalty": 0.5},
+        "reward_scales": {
+            "distance": 4.0, 
+            "pview": 1.0, 
+            "vector_align": 0.8, 
+            "position_align": 0.8, 
+            "joint_penalty": 1.0, 
+            "blind_penalty": 1.5 # 최고 난이도
+        },
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range": (-0.35, 0.35),
 
@@ -373,7 +471,6 @@ zone_activation = {
     "bottom_far":   True,
 }
 
-
 zone_definitions = {
     "top_close":    {"x": (workspace_zones["x"]["middle"], workspace_zones["x"]["far"]),   "z": (workspace_zones["z"]["middle"], rand_pos_range["z"][1])},
     "top_middle":   {"x": (workspace_zones["x"]["middle"], workspace_zones["x"]["far"]),   "z": (workspace_zones["z"]["middle"], rand_pos_range["z"][1])},
@@ -473,27 +570,30 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## camera
     if camera_enable:
         camera = CameraCfg(
-                # prim_path="/World/envs/env_.*/xarm6_with_gripper/link6/hand_camera",
-                prim_path="/World/envs/env_.*/xarm6/link6/hand_camera",
-                update_period=0.03,
-                height=480,
-                width=640,
-                data_types=["rgb", "depth"],
-                spawn=sim_utils.PinholeCameraCfg(
-                    focal_length=30.0, # 값이 클수록 확대
-                    focus_distance=60.0,
-                    horizontal_aperture=50.0,
-                    clipping_range=(0.1, 1.0e5),
-                ),
-                offset=CameraCfg.OffsetCfg(
-                    pos=(0.07, 0.03, -0.13), # 위/아래, 좌/우, 앞/뒤
-                    rot=(0.7071, 0.0, 0.0, 0.7071),
-                )
+            
+            # prim_path="/World/envs/env_.*/xarm6_with_gripper/link6/hand_camera",
+            prim_path="/World/envs/env_.*/xarm6/link6/hand_camera",
+            update_period=0.03,
+            height=480,
+            width=640,
+            data_types=["rgb", "depth"],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=30.0, # 값이 클수록 확대
+                focus_distance=60.0,
+                horizontal_aperture=50.0,
+                clipping_range=(0.1, 1.0e5),
+            ),
+            offset=CameraCfg.OffsetCfg(
+                pos=(0.07, 0.03, -0.13), # 위/아래, 좌/우, 앞/뒤
+                rot=(0.7071, 0.0, 0.0, 0.7071),
             )
+        )
+            
     
     ## mustard
     box = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/base_link",
+        # prim_path="/World/envs/env_.*/base_link",
+        prim_path="/World/envs/env_.*/bottle",
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0, 0.08), rot=(0.923, 0, 0, -0.382)),
         spawn=UsdFileCfg(
             usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/006_mustard_bottle/006_mustard_bottle.usd",
@@ -552,8 +652,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.baseline_avg_reward = 0.05 # 계산된 기준 보상값
 
         #보상 커리큘럼을 위한 독립적인 상태 변수들
-        # self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.current_reward_level = torch.full((self.num_envs,), 2, dtype=torch.long, device=self.device)
+        self.current_reward_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # self.current_reward_level = torch.full((self.num_envs,), 2, dtype=torch.long, device=self.device)
         
         self.episode_init_joint_pos = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         
@@ -773,6 +873,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.level1_axis_mode = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.level2_plane_mode = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
+        self.hand_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        self.hand_rot = torch.zeros((self.num_envs, 4), device=self.device)
+        
     def publish_camera_data(self):
         env_id = 0
         
@@ -858,8 +961,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         return q_conj
     
     def compute_camera_world_pose(self, hand_pos, hand_rot):
-        cam_offset_pos = torch.tensor([0.07, 0.03, -0.13], device=hand_pos.device).repeat(self.num_envs, 1)
-        q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=hand_pos.device).repeat(self.num_envs, 1)
+        batch_size = hand_pos.shape[0]
+        
+        cam_offset_pos = torch.tensor([0.07, 0.03, -0.13], device=hand_pos.device).repeat(batch_size, 1)
+        q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=hand_pos.device).repeat(batch_size, 1)
+        
+        # cam_offset_pos = torch.tensor([0.07, 0.03, -0.13], device=hand_pos.device).repeat(self.num_envs, 1)
+        # q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=hand_pos.device).repeat(self.num_envs, 1)
 
         camera_rot_w, camera_pos_w_abs = tf_combine(
             hand_rot,
@@ -1280,7 +1388,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     # post-physics step calls
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         if hasattr(self, 'is_pview_fail'):
-            is_high_level = (self.current_reward_level >= 4)
+            is_high_level = (self.current_reward_level >= 7)
             current_fail = self.is_pview_fail
             
             self.out_of_fov_counter = torch.where(
@@ -1677,7 +1785,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             pass_reward = total_reward >= self.MIN_TOTAL_REWARD
 
             # [최종 성공 판단] 3가지 조건을 모두(AND) 만족해야 성공
-            success_mask_reward = pass_ratio & pass_distance & pass_reward
+            success_mask_reward = pass_ratio & pass_distance #& pass_reward
             failure_mask_reward = ~success_mask_reward
 
             #승률 기반 레벨 이동 로직
@@ -1702,12 +1810,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 promote_mask = current_success_rate >= self.PROMOTION_RATE
                 if torch.any(promote_mask):
                     promote_ids = check_env_ids[promote_mask]
+                    new_levels = self.current_reward_level[promote_ids] + 1
+                    
+                    # [핵심] 최대 레벨을 초과하지 않도록 clamp
+                    new_levels = torch.clamp(new_levels, max=self.max_reward_level)
                     self.current_reward_level[promote_ids] = (self.current_reward_level[promote_ids] + 1).clamp(max=self.max_reward_level)
 
                 # B. 강등 심사 (40% 이하)
                 demote_mask = current_success_rate < self.DEMOTION_RATE
                 if torch.any(demote_mask):
                     demote_ids = check_env_ids[demote_mask]
+                    
+                    # [수정] 현재 레벨 - 1 계산
+                    new_levels = self.current_reward_level[demote_ids] - 1
+                    
+                    # [핵심] 0 미만으로 내려가지 않도록 clamp
+                    new_levels = torch.clamp(new_levels, min=0)
+                    
                     # 레벨다운
                     self.current_reward_level[demote_ids] = (self.current_reward_level[demote_ids] - 1).clamp(min=0)
 
@@ -1954,8 +2073,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self._robot._ALL_INDICES
 
-        self.hand_pos = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
-        self.hand_rot = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
+        # self.hand_pos = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
+        # self.hand_rot = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
+        
+        self.hand_pos[env_ids] = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
+        self.hand_rot[env_ids] = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
         
         box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx]
         box_rot_world = self._box.data.body_link_quat_w[env_ids, self.box_idx]
@@ -1966,8 +2088,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_rot[env_ids],
             self.box_grasp_pos[env_ids],
         ) = self._compute_grasp_transforms(
-            self.hand_rot,
-            self.hand_pos,
+            # self.hand_rot,
+            # self.hand_pos,
+            self.hand_rot[env_ids],          # [수정] env_ids 추가!
+            self.hand_pos[env_ids],          # [수정] env_ids 추가!
             self.robot_local_grasp_rot[env_ids],
             self.robot_local_grasp_pos[env_ids],
             box_rot_world,
@@ -1990,18 +2114,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     ):
         # 커리큘럼 기반 가중치 설정 (Reward Scales)
         levels = self.current_reward_level
-        distance_reward_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["distance"] for l in levels], device=self.device)
-        vector_align_reward_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["vector_align"] for l in levels], device=self.device)
-        position_align_reward_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["position_align"] for l in levels], device=self.device)
-        pview_reward_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["pview"] for l in levels], device=self.device)
-        joint_penalty_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["joint_penalty"] for l in levels], device=self.device)
-        blind_penalty_scale = torch.tensor([reward_curriculum_levels[l.item()]["reward_scales"]["blind_penalty"] for l in levels], device=self.device)
+        max_idx = self.max_reward_level
+        
+        distance_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["distance"] for l in levels], device=self.device)
+        vector_align_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["vector_align"] for l in levels], device=self.device)
+        position_align_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["position_align"] for l in levels], device=self.device)
+        pview_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["pview"] for l in levels], device=self.device)
+        joint_penalty_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["joint_penalty"] for l in levels], device=self.device)
+        blind_penalty_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["blind_penalty"] for l in levels], device=self.device)
         
         # 커리큘럼 기반 마진 설정
-        distance_margin_m = torch.tensor([reward_curriculum_levels[l.item()]["distance_margin"] for l in levels], device=self.device)
-        vector_align_margin_rad = torch.tensor([reward_curriculum_levels[l.item()]["vector_align_margin"] for l in levels], device=self.device)
-        position_align_margin_m = torch.tensor([reward_curriculum_levels[l.item()]["position_align_margin"] for l in levels], device=self.device)
-        pview_margin_m = torch.tensor([reward_curriculum_levels[l.item()]["pview_margin"] for l in levels], device=self.device)
+        distance_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["distance_margin"] for l in levels], device=self.device)
+        vector_align_margin_rad = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["vector_align_margin"] for l in levels], device=self.device)
+        position_align_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["position_align_margin"] for l in levels], device=self.device)
+        pview_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["pview_margin"] for l in levels], device=self.device)
         
         ALPHA_DIST = 1.0 / (distance_margin_m + 1e-6)
         ALPHA_VEC = 1.0 / (vector_align_margin_rad + 1e-6)
@@ -2067,27 +2193,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         pview_reward = torch.where(is_in_front_mask, pview_positive_reward, torch.full_like(view_error_ratio, 1e-6))
         
-        ## P1: 자세 안정성 유지 페널티 (Joint Penalty) - 곱셈 보상과 분리하여 덧셈 페널티로 적용
-        # joint_deviation = torch.abs(self._robot.data.joint_pos - self.episode_init_joint_pos)
-        # joint_weights = torch.ones_like(joint_deviation)
-        # if robot_type == RobotType.UF:
-        #     joint4_idx = self._robot.find_joints(["joint4"])[0]
-        #     joint6_idx = self._robot.find_joints(["joint6"])[0]
-        #     joint_weights[:, joint4_idx] = 0.0
-        #     joint_weights[:, joint6_idx] = 0.0
-        # weighted_joint_deviation = joint_deviation * joint_weights
-        # joint_penalty = torch.sum(weighted_joint_deviation, dim=-1)
-        # joint_penalty = torch.tanh(joint_penalty)
-        
-        ##[신규 추가] 접근 보상 (Approach Reward) - Shaping Reward
+        ## 접근 보상 (Approach Reward) - Shaping Reward
         if not hasattr(self, 'last_error'):
             self.last_error = distance_error.clone()
             
         error_improvement = (self.last_error - distance_error)
-        approach_reward = torch.clamp(error_improvement, min=0.0) * 3.0
+        approach_reward = torch.clamp(error_improvement, min=0.0) * 6.0
         self.last_error = distance_error.clone()
         
-        ## [신규] Joint 5 (손목) 범위 제한 보상 (Soft Limit)
+        ## Joint 5 (손목) 범위 제한 보상 (Soft Limit)
         joint5_val = self._robot.data.joint_pos[:, 4]
         
         # 제한 범위 설정 (라디안 변환)
@@ -2099,20 +2213,32 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         total_violation = violation_min + violation_max
         joint5_limit_penalty = (total_violation ** 2) * (-joint_penalty_scale)
-                
+        
+        ## gating 기법
+        gating_factor = torch.pow(pview_reward, pview_reward_scale)
+        weighted_distance_reward = torch.pow(distance_reward, distance_reward_scale) * gating_factor
+        
+        task_reward = (
+            weighted_distance_reward * # (거리 * 시야)
+            torch.pow(vector_alignment_reward, vector_align_reward_scale) *
+            torch.pow(position_alignment_reward, position_align_reward_scale)
+        )
+        
         # 최종 보상 조합 (하이브리드 구조)
         # A. Task Reward (성공 조건들 - 곱하기)
-        task_reward = (
-            torch.pow(distance_reward, distance_reward_scale) *
-            torch.pow(vector_alignment_reward, vector_align_reward_scale) *
-            torch.pow(position_alignment_reward, position_align_reward_scale) * 
-            torch.pow(pview_reward, pview_reward_scale)
-        )
+        # task_reward = (
+        #     torch.pow(distance_reward, distance_reward_scale) *
+        #     torch.pow(vector_alignment_reward, vector_align_reward_scale) *
+        #     torch.pow(position_alignment_reward, position_align_reward_scale) * 
+        #     torch.pow(pview_reward, pview_reward_scale)
+        # )
         
         # B. Blind Penalty (실패 비용 - 빼기)
         # 시야를 놓치면 레벨에 따라 감점 (-0.1 ~ -1.0)
         is_blind = self.is_pview_fail.float()
         blind_penalty = is_blind * (-blind_penalty_scale)
+        
+        
         
         # C. 최종 합산
         # (잘했니?) + (다가갔니?) - (놓쳤니?)
