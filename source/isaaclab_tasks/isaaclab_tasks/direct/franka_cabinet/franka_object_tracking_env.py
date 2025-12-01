@@ -81,7 +81,7 @@ test_graph_mode = False
 
 robot_action = False
 robot_init_pose = False
-robot_fix = False
+robot_fix = True
 
 init_reward = True
 reset_flag = True
@@ -96,175 +96,10 @@ rand_pos_range = {
     "y" : ( -0.40, 0.40),
     "z" : (  0.08, 0.75),
     
-    # "x" : (  0.5, 0.70),
-    # "y" : ( -0.35, 0.35),
-    # "z" : (  0.08, 0.7),
-    
-    # "x" : (  0.0, 0.1),
+    # "x" : (  0.4, 0.4),
     # "y" : (  -0.3, 0.3),
-    # "z" : (  0.0, 0.08),
+    # "z" : (  0.6, 0.6),
 }
-
-# reward_curriculum_levels = [
-#     # Level 0: (Static, Robot Speed 0.5) - 가장 넓은 마진
-#     {
-#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
-#         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
-#         "y_range" : ( -0.35, 0.35),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 "먼저" 학습
-#     {
-#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.6, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range" : ( -0.35, 0.35),
-
-#         "distance_margin" : 0.20, # 마진 약간 좁힘
-#         "vector_align_margin" : math.radians(25.0),
-#         "position_align_margin" : 0.25,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - "그다음" 로봇 속도 증가
-#     {
-#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.05},
-#         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35
-#     },
-#     # [신규] Level 3: (Moving Random, Robot Speed 1.0) - "그다음" 물체 속도 증가
-#     {
-#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 0.8, "position_align": 0.8, "joint_penalty": 1.0, "blind_penalty": 0.1},
-#         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(15.0),
-#         "position_align_margin" : 0.15,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
-#     {
-#         "reward_scales": {"pview": 1.0, "distance": 1.0, "vector_align": 1.0, "position_align": 1.0, "joint_penalty": 0.5, "blind_penalty": 0.5},
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.30,
-#     },
-# ]
-
-# reward_curriculum_levels = [
-#     # Level 0: (Static) - 기초 단계부터 공격적으로 설정
-#     {
-#         "reward_scales": {
-#             "distance": 5.0,      # [핵심] 1.0 -> 4.0 (접근이 최우선)
-#             "pview": 0.5,         # 1.0 유지 (Gating을 위해 유지)
-#             "vector_align": 0.5,  # 0.6 -> 0.5 (각도는 나중에)
-#             "position_align": 0.5,# 0.8 -> 0.5 (중앙 정렬보다 거리 좁히기가 우선)
-#             "joint_penalty": 1.0,# [핵심] 1.0 -> 0.05 (팔 움직이는 비용 무료화)
-#             "blind_penalty": 0.5  # [상향] 0.1 -> 0.5 (놓치면 치명타)
-#         },
-#         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
-#         "y_range" : ( -0.40, 0.40),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 1: (Moving Slow) - 추적 시작
-#     {
-#         "reward_scales": {
-#             "distance": 4.0,      # 접근 강조
-#             "pview": 1.0,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0,# 움직임 자유 보장
-#             "blind_penalty": 0.5  # 놓치지 마라
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range" : ( -0.35, 0.35),
-
-#         "distance_margin" : 0.20, 
-#         "vector_align_margin" : math.radians(25.0),
-#         "position_align_margin" : 0.25,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 2: (Moving Planar) - 여기가 고비였음
-#     {
-#         "reward_scales": {
-#             "distance": 4.0,      # 멀어지는 물체 잡으려면 보상이 커야 함
-#             "pview": 1.0,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0,# 멀리 뻗어도 감점 없게 함
-#             "blind_penalty": 0.7
-#         },
-#         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 3: (Moving Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 4.0, 
-#             "pview": 1.0, 
-#             "vector_align": 0.6, # 상위 레벨이니 정밀도 약간 요구
-#             "position_align": 0.6, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.0  # 속도가 빠르니 놓치는 거에 더 엄격하게
-#         },
-#         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(15.0),
-#         "position_align_margin" : 0.15,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 4: (Moving Very Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 4.0, 
-#             "pview": 1.0, 
-#             "vector_align": 0.8, 
-#             "position_align": 0.8, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.5 # 최고 난이도
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.35, 0.35),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.30,
-#     },
-# ]
 
 reward_curriculum_levels = [
     # Level 0: (Static) - 기초 단계
@@ -592,6 +427,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     decimation = 2
     action_space = 6
     observation_space = 21
+    # observation_space = 18
     state_space = 0
 
     ## simulation
@@ -1496,7 +1332,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_pos - self.scene.env_origins, self.box_grasp_rot,
         )
         
-        gripper_to_box_dist = torch.norm(self.robot_grasp_pos - self.box_grasp_pos, p=2, dim=-1)
+        # gripper_to_box_dist = torch.norm(self.robot_grasp_pos - self.box_grasp_pos, p=2, dim=-1)
 
         if not training_mode and test_graph_mode: 
             gripper_pos = self.robot_grasp_pos[0].cpu().numpy()
@@ -1506,7 +1342,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             cam_pos[0] = self.box_pos_cam[0,0].cpu().numpy() #x축
             cam_pos[1] = self.box_pos_cam[0,1].cpu().numpy() #y축
             
-            distance_val = gripper_to_box_dist[0].cpu().numpy()
+            camera_real_dist = torch.norm(self.box_pos_cam[0], p=2, dim=-1).item()
+            distance_val = camera_real_dist
 
             with open(self.csv_filepath, 'a', newline='') as f:
                 writer = csv.writer(f)
@@ -2111,13 +1948,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
             - 1.0
         )
-        
-        # [수정 1] 월드 기준 벡터 대신, 계산해둔 '카메라 기준 물체 위치'를 사용 (치트키)
-        # to_target 대신 box_pos_cam의 XYZ를 넣으면 훨씬 학습이 빠릅니다.
-        # box_pos_cam은 _get_rewards에서 계산되므로, 순서상 _compute_intermediate_values가 먼저 호출되어야 합니다.
-        # (DirectRLEnv 구조상 step -> pre_physics -> ... -> get_obs -> get_reward 순서라
-        #  이전 스텝의 값이 들어가거나, 여기서 다시 계산해야 합니다. 안전하게 다시 계산합니다.)
-        
+
         camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
         box_pos_cam_obs, _ = self.world_to_camera_pose(
             camera_pos_w, camera_rot_w,
@@ -2125,9 +1956,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_rot # 회전은 크게 중요치 않음
         )
         
-        # [수정 2] 속도 값 뻥튀기 (Scaling)
-        # vel_scale = 100.0 
-
+        # print("box_pos_cam_obs:", box_pos_cam_obs)
+        # print("box_pos_w:", self._box.data.body_link_pos_w[:, 0, 0:3])
+        # print("box_vel_w:", self._box.data.body_link_vel_w[:, 0, 0:3],)
+        
         obs = torch.cat(
             (
                 dof_pos_scaled,
@@ -2138,10 +1970,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             ),
             dim=-1,
         )
-        
-        # Observation Space 크기가 바뀌었으니 Config에서 수정 필요!
-        # 기존 21 -> 21 (크기는 같음. to_target(3)을 box_pos_cam(3)으로 대체했으므로)
-        # 만약 to_target도 남기고 싶다면 크기를 24로 늘려야 함.
         
         return {"policy": torch.clamp(obs, -5.0, 5.0),}
     

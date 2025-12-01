@@ -22,7 +22,7 @@ DISTANCE_GUIDE_MIN = 0.35
 DISTANCE_GUIDE_MAX = 0.45
 
 def main():
-    """CSV 파일을 읽어 카메라 뷰와 거리를 실시간으로 시각화합니다 (전체 경로 유지 + 거리 범위 표시)."""
+    """CSV 파일을 읽어 카메라 뷰와 거리를 실시간으로 시각화합니다 (평균/편차 출력 추가)."""
     
     plt.ion() 
     
@@ -43,7 +43,7 @@ def main():
     ax2.add_artist(margin_circle)
     
     # 축 설정 (ROS Convention: X=Right, Y=Down)
-    ax2.set_title('Object Position in Camera Frame\n(ROS: X=Right, Y=Down)')
+    # 타이틀은 루프 안에서 업데이트하므로 초기값은 비워둡니다.
     ax2.set_xlabel('Camera X (Right +)')
     ax2.set_ylabel('Camera Y (Down +)')
     ax2.set_aspect('equal', adjustable='box')
@@ -60,7 +60,6 @@ def main():
     fig3, ax3 = plt.subplots(figsize=(8, 3), num="Distance Monitor")
     distance_line, = ax3.plot([], [], color='blue', linewidth=1.5, label='Real Distance')
     
-    ax3.set_title('Distance to Object')
     ax3.set_xlabel('Time Steps')
     ax3.set_ylabel('Euclidean Dist (m)')
     ax3.grid(True, linestyle='--', alpha=0.5)
@@ -86,7 +85,7 @@ def main():
     plt.show(block=False)
 
     print(f"실시간 플로팅 시작... 타겟 파일: {CSV_FILEPATH}")
-    print("거리 범위(0.3~0.5m)가 표시됩니다. Ctrl+C를 눌러 종료하세요.")
+    print("거리 범위(0.3~0.5m) 및 통계(평균/편차)가 표시됩니다. Ctrl+C를 눌러 종료하세요.")
     
     # --- Main Loop ---
     try:
@@ -115,16 +114,31 @@ def main():
                 cam_x = data['cam_x'].values
                 cam_y = data['cam_y'].values
                 
+                # [추가] 중심(0,0)으로부터의 거리 오차 계산 및 통계 산출
+                cam_error = np.sqrt(cam_x**2 + cam_y**2)
+                cam_mean = np.mean(cam_error)
+                cam_std = np.std(cam_error)
+
                 cam_path_line.set_data(cam_x, cam_y)
                 cam_current_dot.set_data([cam_x[-1]], [cam_y[-1]])
+                
+                # 타이틀에 통계 표시
+                ax2.set_title(f'Object Position in Camera Frame\nError Mean: {cam_mean*100:.2f}cm, Std: {cam_std*100:.2f}cm')
             
             # --- Update Distance Plot ---
             if 'distance' in data.columns:
                 dist_data = data['distance'].values
                 steps = np.arange(len(dist_data))
                 
+                # [추가] 거리 통계 산출
+                dist_mean = np.mean(dist_data)
+                dist_std = np.std(dist_data)
+
                 distance_line.set_data(steps, dist_data)
                 ax3.set_xlim(0, len(dist_data) + 10)
+                
+                # 타이틀에 통계 표시
+                ax3.set_title(f'Distance to Object\nMean: {dist_mean*100:.2f}cm, Std: {dist_std*100:.2f}cm')
 
             # 렌더링
             fig2.canvas.draw()
