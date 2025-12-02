@@ -72,16 +72,16 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
-test_graph_mode = False
+camera_enable = True
+image_publish = True
+test_graph_mode = True
 
 robot_action = False
 robot_init_pose = False
-robot_fix = True
+robot_fix = False
 
 init_reward = True
 reset_flag = True
@@ -427,7 +427,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     decimation = 2
     action_space = 6
     observation_space = 21
-    # observation_space = 18
+    # observation_space = 24
     state_space = 0
 
     ## simulation
@@ -789,6 +789,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 10
             )
         
+        self.prev_box_pos_w = torch.zeros((self.num_envs, 3), device=self.device)
+        self.prev_box_pos_c = torch.zeros((self.num_envs, 3), device=self.device)
         
     def publish_camera_data(self):
         env_id = 0
@@ -1938,6 +1940,51 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self.last_error[env_ids] = current_dist
         
         super()._reset_idx(env_ids)
+        
+        self._compute_intermediate_values(env_ids)
+
+        # 1. 월드 좌표 초기화
+        current_pos_w = self._box.data.body_link_pos_w[env_ids, 0, 0:3] - self.scene.env_origins[env_ids]
+        self.prev_box_pos_w[env_ids] = current_pos_w.clone()
+
+        # 2. 카메라 좌표 초기화
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos[env_ids], self.hand_rot[env_ids])
+        current_pos_c, _ = self.world_to_camera_pose(
+            camera_pos_w, camera_rot_w,
+            current_pos_w, 
+            self.box_grasp_rot[env_ids]
+        )
+        self.prev_box_pos_c[env_ids] = current_pos_c[:, 0:3].clone()
+    
+    # def _get_observations(self) -> dict:
+    #     self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
+        
+    #     dof_pos_scaled = (
+    #         2.0
+    #         * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
+    #         / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
+    #         - 1.0
+    #     )
+
+    #     camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+    #     box_pos_cam_obs, _ = self.world_to_camera_pose(
+    #         camera_pos_w, camera_rot_w,
+    #         self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins, # box_grasp_pos 대신 link pos 사용
+    #         self.box_grasp_rot # 회전은 크게 중요치 않음
+    #     )
+        
+    #     obs = torch.cat(
+    #         (
+    #             dof_pos_scaled,
+    #             self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
+    #             box_pos_cam_obs[:, 0:3], 
+    #             self._box.data.body_link_pos_w[:, 0, 0:3],
+    #             self._box.data.body_link_vel_w[:, 0, 0:3],
+    #         ),
+    #         dim=-1,
+    #     )
+        
+    #     return {"policy": torch.clamp(obs, -5.0, 5.0),}
     
     def _get_observations(self) -> dict:
         self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
@@ -1948,28 +1995,38 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
             - 1.0
         )
-
+        
+        # [1] 월드 기준 현재 위치 (Ground Truth)
+        box_pos_w_cur = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
+        
+        # [2] 카메라 기준 현재 위치 (Calculated)
         camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
-        box_pos_cam_obs, _ = self.world_to_camera_pose(
+        box_pos_c_cur, _ = self.world_to_camera_pose(
             camera_pos_w, camera_rot_w,
-            self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins, # box_grasp_pos 대신 link pos 사용
-            self.box_grasp_rot # 회전은 크게 중요치 않음
+            box_pos_w_cur, 
+            self.box_grasp_rot
         )
-        
-        # print("box_pos_cam_obs:", box_pos_cam_obs)
-        # print("box_pos_w:", self._box.data.body_link_pos_w[:, 0, 0:3])
-        # print("box_vel_w:", self._box.data.body_link_vel_w[:, 0, 0:3],)
-        
+        box_pos_c_cur = box_pos_c_cur[:, 0:3]
+
+        # [3] Observation 구성
+        # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
         obs = torch.cat(
             (
-                dof_pos_scaled,
-                self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
-                box_pos_cam_obs[:, 0:3], 
-                self._box.data.body_link_pos_w[:, 0, 0:3],
-                self._box.data.body_link_vel_w[:, 0, 0:3],
+                dof_pos_scaled,                                             # 1. 로봇 관절
+                self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
+                
+                box_pos_c_cur,           # 3. 카메라 기준 현재 위치
+                # self.prev_box_pos_c,     # 4. 카메라 기준 과거 위치
+                
+                box_pos_w_cur,           # 5. 월드 기준 현재 위치
+                self.prev_box_pos_w,     # 6. 월드 기준 과거 위치
             ),
             dim=-1,
         )
+        
+        # [4] 다음 스텝을 위해 현재를 과거로 저장
+        self.prev_box_pos_w = box_pos_w_cur.clone()
+        self.prev_box_pos_c = box_pos_c_cur.clone()
         
         return {"policy": torch.clamp(obs, -5.0, 5.0),}
     
