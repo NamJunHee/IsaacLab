@@ -72,12 +72,12 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = True
+training_mode = False
 foundationpose_mode = False
 
-camera_enable = False
-image_publish = False
-test_graph_mode = False
+camera_enable = True
+image_publish = True
+test_graph_mode = True
 
 robot_action = False
 robot_init_pose = False
@@ -428,7 +428,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     action_space = 6
     # observation_space = 21
     # observation_space = 24
-    observation_space = 21
+    observation_space = 23
     state_space = 0
 
     ## simulation
@@ -2038,6 +2038,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         current_depth = box_pos_c_cur[:, 2]
         z_error = (current_depth - target_dist).unsqueeze(-1)
         
+        xy_offset = torch.norm(box_pos_c_cur[:, 0:2], p=2, dim=-1).unsqueeze(-1)
+        
         obs = torch.cat(
             (
                 dof_pos_scaled,                                             # 1. 로봇 관절
@@ -2050,7 +2052,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self.prev_box_pos_w,     # 6. 월드 기준 과거 위치
                 
                 # camera_pos_w,
-                # z_error,
+                z_error,
+                xy_offset,
             ),
             dim=-1,
         )
