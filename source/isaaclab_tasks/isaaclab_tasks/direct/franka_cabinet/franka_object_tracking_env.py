@@ -72,12 +72,12 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 # object_move = ObjectMoveType.CURRICULAR
 
-training_mode = False
+training_mode = True
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
-test_graph_mode = True
+camera_enable = False
+image_publish = False
+test_graph_mode = False
 
 robot_action = False
 robot_init_pose = False
@@ -92,13 +92,13 @@ add_episode_length = 200
 # add_episode_length = -500
 
 rand_pos_range = {
-    "x" : (  0.35, 0.75),
+    "x" : (  0.40, 0.75),
     "y" : ( -0.40, 0.40),
     "z" : (  0.08, 0.75),
     
-    # "x" : (  0.4, 0.4),
-    # "y" : (  -0.3, 0.3),
-    # "z" : (  0.6, 0.6),
+    # "x" : (  0.7, 0.7),
+    # "y" : (  -0.0, 0.0),
+    # "z" : (  0.2, 0.6),
 }
 
 reward_curriculum_levels = [
@@ -134,7 +134,7 @@ reward_curriculum_levels = [
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range" : ( -0.35, 0.35),
 
-        "distance_margin" : 0.20, 
+        "distance_margin" : 0.15, 
         "vector_align_margin" : math.radians(25.0),
         "position_align_margin" : 0.25,
         "pview_margin" : 0.25,
@@ -153,7 +153,7 @@ reward_curriculum_levels = [
         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
         "y_range": (-0.35, 0.35),
 
-        "distance_margin" : 0.15,
+        "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(20.0),
         "position_align_margin" : 0.20,
         "pview_margin" : 0.20,
@@ -191,7 +191,7 @@ reward_curriculum_levels = [
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range": (-0.35, 0.35),
 
-        "distance_margin" : 0.10,
+        "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
         "pview_margin" : 0.15,
@@ -426,8 +426,9 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
     action_space = 6
-    observation_space = 21
+    # observation_space = 21
     # observation_space = 24
+    observation_space = 21
     state_space = 0
 
     ## simulation
@@ -484,16 +485,24 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         actuators={
             "ufactory_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3"],
-                effort_limit = 87.0,
+                # effort_limit = 50.0,
+                # velocity_limit = 2.8,
+                # stiffness = 800.0,
+                # damping = 40.0,
                 
+                effort_limit = 87.0,
                 velocity_limit = 2.61,
                 stiffness = 2000.0,
                 damping = 100.0,
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["joint4", "joint5", "joint6"],
-                effort_limit = 87.0,
+                # effort_limit = 50.0,
+                # velocity_limit = 2.8,
+                # stiffness = 800.0,
+                # damping = 40.0,
                 
+                effort_limit = 87.0,
                 velocity_limit = 2.61,
                 stiffness = 2000.0,
                 damping = 100.0,
@@ -792,6 +801,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.prev_box_pos_w = torch.zeros((self.num_envs, 3), device=self.device)
         self.prev_box_pos_c = torch.zeros((self.num_envs, 3), device=self.device)
         
+        self.last_action_filter = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
+        self.smoothing_alpha = 1.0
+        
     def publish_camera_data(self):
         env_id = 0
         
@@ -1014,6 +1026,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         
+        # self.actions = actions.clone().clamp(-1.0, 1.0)
+        
+        # filtered_actions = (self.smoothing_alpha * actions) + ((1.0 - self.smoothing_alpha) * self.last_action_filter)
+        # self.last_action_filter = filtered_actions.clone()
+                
+        # current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
+        # # potential_targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * current_action_scale
+        # potential_targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * filtered_actions * current_action_scale
+        # potential_targets_clamped = torch.clamp(potential_targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+
         self.actions = actions.clone().clamp(-1.0, 1.0)
                 
         current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
@@ -2010,16 +2032,25 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # [3] Observation 구성
         # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
+        # print("box_pos_c_cur :", box_pos_c_cur)
+        
+        target_dist = 0.40
+        current_depth = box_pos_c_cur[:, 2]
+        z_error = (current_depth - target_dist).unsqueeze(-1)
+        
         obs = torch.cat(
             (
                 dof_pos_scaled,                                             # 1. 로봇 관절
                 self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
                 
                 box_pos_c_cur,           # 3. 카메라 기준 현재 위치
-                # self.prev_box_pos_c,     # 4. 카메라 기준 과거 위치
+                # self.prev_box_pos_c,   # 4. 카메라 기준 과거 위치
                 
                 box_pos_w_cur,           # 5. 월드 기준 현재 위치
                 self.prev_box_pos_w,     # 6. 월드 기준 과거 위치
+                
+                # camera_pos_w,
+                # z_error,
             ),
             dim=-1,
         )
@@ -2100,13 +2131,30 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # ESCAPE_GRADIENT = 0.005 
         
         ## R1: 거리 유지 보상 (Distance Reward) - [카메라 기준 수정]
-        target_distance = 0.40
-        camera_real_distance = torch.norm(box_pos_cam, dim=-1) 
-        distance_error = torch.abs(camera_real_distance - target_distance)
+        # target_distance = 0.40
+        # camera_real_distance = torch.norm(box_pos_cam, dim=-1) 
+        # distance_error = torch.abs(camera_real_distance - target_distance)
         
-        distance_reward = (
-            torch.exp(-ALPHA_DIST * distance_error)
+        # distance_reward = (
+        #     torch.exp(-ALPHA_DIST * distance_error)
+        # )
+        
+        target_distance = 0.40
+        camera_real_distance = torch.norm(box_pos_cam, dim=-1)
+        
+        # 단순 절대값 오차가 아니라 '부호 있는 오차'를 봅니다.
+        # (현재 - 목표): 양수면 멂, 음수면 가까움
+        distance_error = camera_real_distance - target_distance
+        
+        # [핵심] 비대칭 보상 적용
+        # 너무 가까울 때(음수)는 오차를 2배로 뻥튀기해서 패널티를 키움
+        weighted_error = torch.where(
+            distance_error < 0, 
+            torch.abs(distance_error) * 1.5,  # 가까우면 2.5배 더 민감하게 반응해라!
+            torch.abs(distance_error) * 1.0   # 멀면 그냥 원래대로
         )
+        
+        distance_reward = torch.exp(-ALPHA_DIST * weighted_error)
                 
         self.avg_distance_error_buf += distance_error
         # self.episode_steps_buf += 1.0 # 매 스텝 1씩 증가
