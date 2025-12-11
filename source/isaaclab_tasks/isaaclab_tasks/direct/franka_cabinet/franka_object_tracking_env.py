@@ -65,19 +65,16 @@ robot_type = RobotType.UF
 
 class ObjectMoveType(Enum):
     STATIC = "static"
-    CIRCLE = "circle"
     LINEAR = "linear"
-    # CURRICULAR = "curricular"
 # object_move = ObjectMoveType.STATIC
 object_move = ObjectMoveType.LINEAR
-# object_move = ObjectMoveType.CURRICULAR
 
-training_mode = False
+training_mode = True
 foundationpose_mode = False
 
-camera_enable = True
-image_publish = True
-test_graph_mode = True
+camera_enable = False
+image_publish = False
+test_graph_mode = False
 
 robot_action = False
 robot_init_pose = False
@@ -92,8 +89,8 @@ add_episode_length = 200
 # add_episode_length = -500
 
 rand_pos_range = {
-    "x" : (  0.40, 0.75),
-    "y" : ( -0.40, 0.40),
+    "x" : (  0.35, 0.75),
+    "y" : ( -0.50, 0.50),
     "z" : (  0.08, 0.75),
     
     # "x" : (  0.7, 0.7),
@@ -113,7 +110,7 @@ reward_curriculum_levels = [
             "blind_penalty": 1.0  # [상향] 0.1 -> 1.0 (놓치면 점수 다 뱉어내라)
         },
         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
-        "y_range" : ( -0.40, 0.40),
+        "y_range" : ( -0.50, 0.50),
 
         "distance_margin" : 0.15,
         "vector_align_margin" : math.radians(20.0),
@@ -132,7 +129,7 @@ reward_curriculum_levels = [
             "blind_penalty": 1.0  # [상향]
         },
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-        "y_range" : ( -0.35, 0.35),
+        "y_range" : ( -0.50, 0.50),
 
         "distance_margin" : 0.15, 
         "vector_align_margin" : math.radians(25.0),
@@ -151,7 +148,7 @@ reward_curriculum_levels = [
             "blind_penalty": 1.0  # [상향]
         },
         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
-        "y_range": (-0.35, 0.35),
+        "y_range": (-0.50, 0.50),
 
         "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(20.0),
@@ -170,7 +167,7 @@ reward_curriculum_levels = [
             "blind_penalty": 1.0 
         },
         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
-        "y_range": (-0.35, 0.35),
+        "y_range": (-0.50, 0.50),
 
         "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(15.0),
@@ -189,13 +186,31 @@ reward_curriculum_levels = [
             "blind_penalty": 1.5 # [최상위] 더 엄격하게
         },
         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-        "y_range": (-0.35, 0.35),
+        "y_range": (-0.50, 0.50),
 
         "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
         "pview_margin" : 0.15,
-        "fail_margin" : 0.30,
+        "fail_margin" : 0.25,
+    },
+    {
+        "reward_scales": {
+            "distance": 6.0, 
+            "pview": 0.5, 
+            "vector_align": 0.5, 
+            "position_align": 0.5, 
+            "joint_penalty": 1.0, 
+            "blind_penalty": 1.5 # [최상위] 더 엄격하게
+        },
+        "success_multiplier": 1.0, "failure_multiplier": 1.2, 
+        "y_range": (-0.50, 0.50),
+
+        "distance_margin" : 0.05,
+        "vector_align_margin" : math.radians(10.0),
+        "position_align_margin" : 0.10,
+        "pview_margin" : 0.15,
+        "fail_margin" : 0.25,
     },
 ]
 
@@ -491,7 +506,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # damping = 40.0,
                 
                 effort_limit = 87.0,
-                velocity_limit = 2.61,
+                # velocity_limit = 2.61,
+                velocity_limit = 3.5,
                 stiffness = 2000.0,
                 damping = 100.0,
             ),
@@ -503,7 +519,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # damping = 40.0,
                 
                 effort_limit = 87.0,
-                velocity_limit = 2.61,
+                # velocity_limit = 2.61,
+                velocity_limit = 3.5,
                 stiffness = 2000.0,
                 damping = 100.0,
             ),
@@ -513,7 +530,6 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## camera
     if camera_enable:
         camera = CameraCfg(
-            # prim_path="/World/envs/env_.*/xarm6_with_gripper/link6/hand_camera",
             prim_path="/World/envs/env_.*/xarm6/link6/hand_camera",
             update_period=0.03,
             height=480,
@@ -535,7 +551,6 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## mustard
     box = RigidObjectCfg(
         prim_path="/World/envs/env_.*/base_link",
-        # prim_path="/World/envs/env_.*/bottle",
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0, 0.08), rot=(0.923, 0, 0, -0.382)),
         spawn=UsdFileCfg(
             usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/006_mustard_bottle/006_mustard_bottle.usd",
@@ -696,19 +711,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6_with_gripper/link6")),
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
         lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6_with_gripper/left_finger")),
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
         rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6_with_gripper/right_finger")),
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
@@ -1215,7 +1227,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
             if len(env_ids_to_change_speed) > 0:
                 # 3. 새로운 노이즈 비율 생성 (0.7 ~ 1.3)
-                new_noise = (torch.rand(len(env_ids_to_change_speed), device=self.device) * 0.6) + 0.7
+                new_noise = (torch.rand(len(env_ids_to_change_speed), device=self.device) * 1.0) + 0.5
                 self.current_speed_factor[env_ids_to_change_speed] = new_noise
                 
                 # 4. 타이머 리셋 (0.5초 ~ 1.5초 사이 랜덤 유지)
@@ -1889,53 +1901,61 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 mask_level_1 = (current_levels_for_reset == 1)
                 mask_level_2 = (current_levels_for_reset == 2)
                 mask_level_3 = (current_levels_for_reset == 3)
-                mask_level_4_plus = (current_levels_for_reset >= 4)
+                mask_level_4 = (current_levels_for_reset == 4)
+                mask_level_5 = (current_levels_for_reset == 5)
 
                 env_ids_level_0 = env_ids[mask_level_0]
                 env_ids_level_1 = env_ids[mask_level_1]
                 env_ids_level_2 = env_ids[mask_level_2]
                 env_ids_level_3 = env_ids[mask_level_3]
-                env_ids_level_4_plus = env_ids[mask_level_4_plus]
+                env_ids_level_4 = env_ids[mask_level_4]
+                env_ids_level_5 = env_ids[mask_level_5]
 
                 # Level 0: (Static, Robot Speed 0.5)
                 if len(env_ids_level_0) > 0:
                     self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
                     self.obj_speed[env_ids_level_0] = 0.0
-                    self.action_scale_tensor[env_ids_level_0] = 1.0 
+                    self.action_scale_tensor[env_ids_level_0] = 3.0 
                     self._perform_static_reset(env_ids_level_0) 
 
                 # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 먼저
                 if len(env_ids_level_1) > 0:
                     self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
                     self.obj_speed[env_ids_level_1] = 0.05 # 물체 이동 시작
-                    self.action_scale_tensor[env_ids_level_1] = 1.0 # 로봇 속도 유지
+                    self.action_scale_tensor[env_ids_level_1] = 3.0 # 로봇 속도 유지
                     self._perform_linear_reset(env_ids_level_1)
 
                 # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - 다음 로봇 속도 증가
                 if len(env_ids_level_2) > 0:
                     self.object_move_state[env_ids_level_2] = self.MOVE_STATE_LINEAR
-                    self.obj_speed[env_ids_level_2] = 0.07
-                    self.action_scale_tensor[env_ids_level_2] = 1.0 # 로봇 속도 증가
+                    self.obj_speed[env_ids_level_2] = 0.10
+                    self.action_scale_tensor[env_ids_level_2] = 3.0 # 로봇 속도 증가
                     self._perform_linear_reset(env_ids_level_2)
 
                 # [신규] Level 3: (Moving Random, Robot Speed 1.0) - 다음 물체 속도 증가
                 if len(env_ids_level_3) > 0:
                     self.object_move_state[env_ids_level_3] = self.MOVE_STATE_LINEAR
                     num_level_3 = len(env_ids_level_3)
-                    random_speeds = torch.rand(num_level_3, device=self.device) * (0.0015 - 0.0007) + 0.0007
-                    self.obj_speed[env_ids_level_3] = 0.1
-                    self.action_scale_tensor[env_ids_level_3] = 1.0 # 로봇 속도 유지
+                    self.obj_speed[env_ids_level_3] = 0.20
+                    self.action_scale_tensor[env_ids_level_3] = 3.0 # 로봇 속도 유지
                     self._perform_linear_reset(env_ids_level_3)
 
                 # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
-                if len(env_ids_level_4_plus) > 0:
-                    self.object_move_state[env_ids_level_4_plus] = self.MOVE_STATE_LINEAR
-                    # num_level_4_plus = len(env_ids_level_4_plus)
-                    # random_speeds = torch.rand(num_level_4_plus, device=self.device) * (0.0015 - 0.0007) + 0.0007
-                    # self.obj_speed[env_ids_level_4_plus] = random_speeds
-                    self.obj_speed[env_ids_level_4_plus] = 0.15
-                    self.action_scale_tensor[env_ids_level_4_plus] = 1.0 # 로봇 속도 증가
-                    self._perform_linear_reset(env_ids_level_4_plus)
+                if len(env_ids_level_4) > 0:
+                    self.object_move_state[env_ids_level_4] = self.MOVE_STATE_LINEAR
+                    # 0.5(최대) - 0.3(최소) = 0.2 (범위)
+                    num_level_4 = len(env_ids_level_4)
+                    self.obj_speed[env_ids_level_4] = 0.40
+                    self.action_scale_tensor[env_ids_level_4] = 3.0 # 로봇 속도 증가
+                    self._perform_linear_reset(env_ids_level_4)
+                    
+                if len(env_ids_level_5) > 0:
+                    self.object_move_state[env_ids_level_5] = self.MOVE_STATE_LINEAR
+                    # 0.5(최대) - 0.3(최소) = 0.2 (범위)
+                    num_level_4 = len(env_ids_level_5)
+                    self.obj_speed[env_ids_level_5] = 0.60
+                    self.action_scale_tensor[env_ids_level_5] = 3.0 # 로봇 속도 증가
+                    self._perform_linear_reset(env_ids_level_5)
 
             else: # training_mode == False (테스트 모드)
                 self.action_scale_tensor[env_ids] = 2.0 # (4.0이 적용됨)
@@ -1947,7 +1967,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
                 elif object_move == ObjectMoveType.LINEAR:
                     self.object_move_state[env_ids] = self.MOVE_STATE_LINEAR
-                    self.obj_speed[env_ids] = 0.3 
+                    self.obj_speed[env_ids] = 0.6 
                     self._perform_linear_reset(env_ids)
 
             self.cfg.current_time = 0
@@ -2045,13 +2065,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 dof_pos_scaled,                                             # 1. 로봇 관절
                 self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
                 
-                box_pos_c_cur,           # 3. 카메라 기준 현재 위치
-                # self.prev_box_pos_c,   # 4. 카메라 기준 과거 위치
+                box_pos_c_cur,
                 
-                box_pos_w_cur,           # 5. 월드 기준 현재 위치
-                self.prev_box_pos_w,     # 6. 월드 기준 과거 위치
+                box_pos_w_cur,
+                self.prev_box_pos_w,
                 
-                # camera_pos_w,
                 z_error,
                 xy_offset,
             ),
