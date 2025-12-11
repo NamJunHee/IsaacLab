@@ -86,7 +86,6 @@ reset_flag = True
 add_episode_length = 200
 # add_episode_length = -800
 # add_episode_length = -900
-# add_episode_length = -500
 
 rand_pos_range = {
     "x" : (  0.35, 0.75),
