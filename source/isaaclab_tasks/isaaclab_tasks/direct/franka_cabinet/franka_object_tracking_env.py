@@ -69,12 +69,11 @@ class ObjectMoveType(Enum):
 # object_move = ObjectMoveType.STATIC
 object_move = ObjectMoveType.LINEAR
 
-training_mode = True
-foundationpose_mode = False
+training_mode = False
 
-camera_enable = False
-image_publish = False
-test_graph_mode = False
+camera_enable = True
+image_publish = True
+test_graph_mode = True
 
 robot_action = False
 robot_init_pose = False
@@ -83,198 +82,79 @@ robot_fix = False
 init_reward = True
 reset_flag = True
 
-add_episode_length = 200
+# add_episode_length = 200
 # add_episode_length = -800
-# add_episode_length = -900
+add_episode_length = -900
 
 rand_pos_range = {
     "x" : (  0.35, 0.75),
     "y" : ( -0.50, 0.50),
     "z" : (  0.08, 0.75),
+    
+    # "x" : (  0.7, 0.7),
+    # "y" : (  -0.0, 0.0),
+    # "z" : (  0.2, 0.6),
 }
-
-# reward_curriculum_levels = [
-#     # Level 0: (Static) - 기초 단계
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 1.0 -> 6.0 (접근이 깡패다)
-#             "pview": 0.5,         # [하향] 1.0 -> 0.5 (시야는 Gating용)
-#             "vector_align": 0.5,  # 0.6 -> 0.5
-#             "position_align": 0.5,# 0.8 -> 0.5
-#             "joint_penalty": 1.0, # [유지] 손목 보호를 위해 1.0 유지
-#             "blind_penalty": 1.0  # [상향] 0.1 -> 1.0 (놓치면 점수 다 뱉어내라)
-#         },
-#         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
-#         "y_range" : ( -0.50, 0.50),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 1: (Moving Slow) - 추적 시작
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 공격적 접근 유도
-#             "pview": 0.5,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0, # [유지]
-#             "blind_penalty": 1.0  # [상향]
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range" : ( -0.50, 0.50),
-
-#         "distance_margin" : 0.15, 
-#         "vector_align_margin" : math.radians(25.0),
-#         "position_align_margin" : 0.25,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 2: (Moving Planar) - 여기가 고비였던 구간
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 멀어지는 물체 쫓아가려면 보상이 커야 함
-#             "pview": 0.5,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0, # [유지]
-#             "blind_penalty": 1.0  # [상향]
-#         },
-#         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 3: (Moving Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.0 
-#         },
-#         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(15.0),
-#         "position_align_margin" : 0.15,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 4: (Moving Very Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.5 # [최상위] 더 엄격하게
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.05,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.25,
-#     },
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.5 # [최상위] 더 엄격하게
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.05,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.25,
-#     },
-# ]
 
 reward_curriculum_levels = [
     # Level 0: (Static) - 기초 단계
-    # 목표: 일단 물체 근처에 머무는 법을 익힘
     {
         "reward_scales": {
-            "distance": 6.0,      # 접근 유도 (높음)
-            "pview": 0.5,         # 시야 유지 (보조)
-            "vector_align": 0.5,  # 각도 (보조)
-            "position_align": 0.5,# 위치 (보조)
-            "joint_penalty": 1.0, # 관절 보호
-            "blind_penalty": 0.5  # [초반] 실수해도 괜찮음
+            "distance": 6.0,      # [핵심] 1.0 -> 6.0 (접근이 깡패다)
+            "pview": 0.5,         # [하향] 1.0 -> 0.5 (시야는 Gating용)
+            "vector_align": 0.5,  # 0.6 -> 0.5
+            "position_align": 0.5,# 0.8 -> 0.5
+            "joint_penalty": 1.0, # [유지] 손목 보호를 위해 1.0 유지
+            "blind_penalty": 1.0  # [상향] 0.1 -> 1.0 (놓치면 점수 다 뱉어내라)
         },
         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
         "y_range" : ( -0.50, 0.50),
 
-        "distance_margin" : 0.15,          # 15cm 이내면 성공 인정 (관대함)
+        "distance_margin" : 0.15,
         "vector_align_margin" : math.radians(20.0),
         "position_align_margin" : 0.20,
         "pview_margin" : 0.25,
         "fail_margin" : 0.35,
     },
-
     # Level 1: (Moving Slow) - 추적 시작
-    # 목표: 천천히 움직이는 물체를 따라가기 시작함
     {
         "reward_scales": {
-            "distance": 6.0,      
+            "distance": 6.0,      # [핵심] 공격적 접근 유도
             "pview": 0.5,
             "vector_align": 0.5,
             "position_align": 0.5,
-            "joint_penalty": 1.0, 
-            "blind_penalty": 0.5  # [유지] 아직 배우는 단계
+            "joint_penalty": 1.0, # [유지]
+            "blind_penalty": 1.0  # [상향]
         },
-        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range" : ( -0.50, 0.50),
 
-        "distance_margin" : 0.15,          # 마진 유지
+        "distance_margin" : 0.15, 
         "vector_align_margin" : math.radians(25.0),
         "position_align_margin" : 0.25,
         "pview_margin" : 0.25,
         "fail_margin" : 0.35,
     },
-
-    # Level 2: (Moving Planar) - 2D 평면 이동
-    # 목표: 조금 더 복잡한 움직임 적응
+    # Level 2: (Moving Planar) - 여기가 고비였던 구간
     {
         "reward_scales": {
-            "distance": 6.0,      
+            "distance": 6.0,      # [핵심] 멀어지는 물체 쫓아가려면 보상이 커야 함
             "pview": 0.5,
             "vector_align": 0.5,
             "position_align": 0.5,
-            "joint_penalty": 1.0, 
-            "blind_penalty": 0.6  # [소폭 상향] 조금 더 집중해라
+            "joint_penalty": 1.0, # [유지]
+            "blind_penalty": 1.0  # [상향]
         },
-        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "success_multiplier": 0.9, "failure_multiplier": 1.0, 
         "y_range": (-0.50, 0.50),
 
-        "distance_margin" : 0.10,          # [조임] 15cm -> 10cm (정밀도 요구 시작)
+        "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(20.0),
         "position_align_margin" : 0.20,
         "pview_margin" : 0.20,
         "fail_margin" : 0.30
     },
-
-    # Level 3: (Moving Fast Random) - 3D 랜덤 이동
-    # 목표: 본격적인 추적
+    # Level 3: (Moving Fast)
     {
         "reward_scales": {
             "distance": 6.0, 
@@ -282,20 +162,18 @@ reward_curriculum_levels = [
             "vector_align": 0.5, 
             "position_align": 0.5, 
             "joint_penalty": 1.0, 
-            "blind_penalty": 0.7  # [상향] 놓치면 안 됨
+            "blind_penalty": 1.0 
         },
-        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "success_multiplier": 0.8, "failure_multiplier": 1.0, 
         "y_range": (-0.50, 0.50),
 
-        "distance_margin" : 0.10,          # 10cm 유지
+        "distance_margin" : 0.10,
         "vector_align_margin" : math.radians(15.0),
         "position_align_margin" : 0.15,
         "pview_margin" : 0.20,
         "fail_margin" : 0.30
     },
-
-    # Level 4: (Moving Very Fast) - 고속 추적
-    # 목표: 빠른 속도에 적응 (오버슈팅 주의)
+    # Level 4: (Moving Very Fast)
     {
         "reward_scales": {
             "distance": 6.0, 
@@ -303,25 +181,17 @@ reward_curriculum_levels = [
             "vector_align": 0.5, 
             "position_align": 0.5, 
             "joint_penalty": 1.0, 
-            
-            # [핵심 수정] 1.5 -> 0.5 
-            # 이유: 속도가 빨라지면 필연적으로 놓치는 순간이 생기는데, 
-            # 이때 -1.5점을 때리면 로봇이 학습을 포기(Collapse)해버림.
-            # "실수해도 괜찮으니 다시 따라붙어라"고 유도.
-            "blind_penalty": 0.5 
+            "blind_penalty": 1.5 # [최상위] 더 엄격하게
         },
-        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range": (-0.50, 0.50),
 
-        "distance_margin" : 0.05,          # [최대 조임] 5cm (정밀도는 타협하지 않음)
+        "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
         "pview_margin" : 0.15,
         "fail_margin" : 0.25,
     },
-
-    # Level 5: (Moving Ultra Fast) - 극한 단계
-    # 목표: 한계 속도 도전
     {
         "reward_scales": {
             "distance": 6.0, 
@@ -329,15 +199,12 @@ reward_curriculum_levels = [
             "vector_align": 0.5, 
             "position_align": 0.5, 
             "joint_penalty": 1.0, 
-            
-            # [핵심 수정] 1.5 -> 0.5
-            # 이유: 위와 동일. 극한 상황일수록 채찍보다는 격려가 필요함.
-            "blind_penalty": 0.5 
+            "blind_penalty": 1.5 # [최상위] 더 엄격하게
         },
-        "success_multiplier": 1.0, "failure_multiplier": 1.0, 
+        "success_multiplier": 1.0, "failure_multiplier": 1.2, 
         "y_range": (-0.50, 0.50),
 
-        "distance_margin" : 0.05,          # 5cm 유지
+        "distance_margin" : 0.05,
         "vector_align_margin" : math.radians(10.0),
         "position_align_margin" : 0.10,
         "pview_margin" : 0.15,
@@ -345,194 +212,13 @@ reward_curriculum_levels = [
     },
 ]
 
-# pose_candidate = {
-#     # "zero" : {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(0.0), 
-#     #                   "joint3": math.radians(0.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(0.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     ## top------------------------------------------------
-#     # "top_close":   {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-50.0), 
-#     #                   "joint3": math.radians(-30.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-30.0), 
-#     #                   "joint6": math.radians(0.0)},
-        
-#     "top_close":   {"joint1": math.radians(0.0), 
-#                       "joint2": math.radians(-75.0), 
-#                       "joint3": math.radians(-40.0), 
-#                       "joint4": math.radians(0.0), 
-#                       "joint5": math.radians(0.0), 
-#                       "joint6": math.radians(0.0)},
-
-#     # "top_close_2":   {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-110.0), 
-#     #                   "joint3": math.radians(5.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-5.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "top_middle":   {"joint1": math.radians(  0.0), 
-#     #                   "joint2": math.radians(-30.0), 
-#     #                   "joint3": math.radians(-30.0), 
-#     #                   "joint4": math.radians(  0.0), 
-#     #                   "joint5": math.radians( -45.0), 
-#     #                   "joint6": math.radians(  0.0)},
-    
-#     "top_middle":   {"joint1": math.radians(  0.0), 
-#                       "joint2": math.radians(-25.0), 
-#                       "joint3": math.radians(-60.0), 
-#                       "joint4": math.radians(  0.0), 
-#                       "joint5": math.radians( -30.0), 
-#                       "joint6": math.radians(  0.0)},
-    
-#     # "top_middle_2":   {"joint1": math.radians(  0.0), 
-#     #                   "joint2": math.radians(-5.0), 
-#     #                   "joint3": math.radians(-60.0), 
-#     #                   "joint4": math.radians(  0.0), 
-#     #                   "joint5": math.radians( -35.0), 
-#     #                   "joint6": math.radians(  0.0)},
-    
-#     # "top_far":     {"joint1": math.radians(  0.0), 
-#     #                   "joint2": math.radians( -20.0),  
-#     #                   "joint3": math.radians(-45.0), 
-#     #                   "joint4": math.radians(  0.0), 
-#     #                   "joint5": math.radians(  -35.0), 
-#     #                   "joint6": math.radians(  0.0)},
-    
-#     "top_far":     {"joint1": math.radians(  0.0), 
-#                     "joint2": math.radians(  0.0),  
-#                     "joint3": math.radians(-90.0), 
-#                     "joint4": math.radians(  0.0), 
-#                     "joint5": math.radians(-20.0), 
-#                     "joint6": math.radians(  0.0)},
-    
-#     # "top_far_2":     {"joint1": math.radians(  0.0), 
-#     #                   "joint2": math.radians(  0.0),  
-#     #                   "joint3": math.radians(-65.0), 
-#     #                   "joint4": math.radians(  0.0), 
-#     #                   "joint5": math.radians(-35.0), 
-#     #                   "joint6": math.radians(  0.0)},
-    
-#     ##middle------------------------------------------------
-#     # "middle_close":  {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-110.0),
-#     #                   "joint3": math.radians( -5.0),  
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(45.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "middle_middle": {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-40.0), 
-#     #                   "joint3": math.radians(0.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-45.0),  
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "middle_far":    {"joint1": math.radians(0.0),  
-#     #                   "joint2": math.radians(15.0),  
-#     #                   "joint3": math.radians(-50.0),
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-50.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     "middle_close":  {"joint1": math.radians(  0.0), 
-#                       "joint2": math.radians(-90.0),
-#                       "joint3": math.radians(-25.0),  
-#                       "joint4": math.radians(  0.0), 
-#                       "joint5": math.radians( 25.0), 
-#                       "joint6": math.radians( 0.0)},
-    
-#     "middle_middle": {"joint1": math.radians(  0.0), 
-#                       "joint2": math.radians(-45.0), 
-#                       "joint3": math.radians(-40.0), 
-#                       "joint4": math.radians(  0.0), 
-#                       "joint5": math.radians( -5.0),  
-#                       "joint6": math.radians(  0.0)},
-    
-#     "middle_far":    {"joint1": math.radians(  0.0),  
-#                       "joint2": math.radians(  5.0),  
-#                       "joint3": math.radians(-80.0),
-#                       "joint4": math.radians(  0.0), 
-#                       "joint5": math.radians(-15.0), 
-#                       "joint6": math.radians(  0.0)},
-
-#     ##bottom------------------------------------------------
-#     # "bottom_close":  {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-95.0),   
-#     #                   "joint3": math.radians(-5.0),   
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians( 50.0),
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "bottom2_close2":  {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-70.0),   
-#     #                   "joint3": math.radians( 0.0),   
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians( 35.0),
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "bottom_middle": {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-60.0),  
-#     #                   "joint3": math.radians(-0.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(10.0),
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "bottom_middle_2": {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-30.0),  
-#     #                   "joint3": math.radians(-0.0), 
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-10.0),
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "bottom_far":    {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(-25.0),  
-#     #                   "joint3": math.radians(-15.0),
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-5.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     # "bottom_far_2":    {"joint1": math.radians(0.0), 
-#     #                   "joint2": math.radians(15.0),  
-#     #                   "joint3": math.radians(-45.0),
-#     #                   "joint4": math.radians(0.0), 
-#     #                   "joint5": math.radians(-5.0), 
-#     #                   "joint6": math.radians(0.0)},
-    
-#     "bottom_close":    {"joint1": math.radians(  0.0), 
-#                         "joint2": math.radians(-95.0),  
-#                         "joint3": math.radians(-10.0),
-#                         "joint4": math.radians(  0.0), 
-#                         "joint5": math.radians( 60.0), 
-#                         "joint6": math.radians(  0.0)},
-    
-#     "bottom_middle":   {"joint1": math.radians(  0.0), 
-#                         "joint2": math.radians(-40.0),  
-#                         "joint3": math.radians(-25.0),
-#                         "joint4": math.radians(  0.0), 
-#                         "joint5": math.radians( 20.0), 
-#                         "joint6": math.radians(  0.0)},
-    
-#     "bottom_far":      {"joint1": math.radians(  0.0), 
-#                         "joint2": math.radians(  5.0),  
-#                         "joint3": math.radians(-55.0),
-#                         "joint4": math.radians(  0.0), 
-#                         "joint5": math.radians(  5.0), 
-#                         "joint6": math.radians(  0.0)},
-# }
-
 pose_candidate = {
     # "zero" : {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(0.0), 
     #                   "joint3": math.radians(0.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(0.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     ## top------------------------------------------------
     # "top_close":   {"joint1": math.radians(0.0), 
@@ -540,72 +226,63 @@ pose_candidate = {
     #                   "joint3": math.radians(-30.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-30.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
         
     "top_close":   {"joint1": math.radians(0.0), 
                       "joint2": math.radians(-75.0), 
                       "joint3": math.radians(-40.0), 
                       "joint4": math.radians(0.0), 
                       "joint5": math.radians(0.0), 
-                      "joint6": math.radians(0.0),
-                      "drive_joint": 0.0},
+                      "joint6": math.radians(0.0)},
 
     # "top_close_2":   {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-110.0), 
     #                   "joint3": math.radians(5.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-5.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "top_middle":   {"joint1": math.radians(  0.0), 
     #                   "joint2": math.radians(-30.0), 
     #                   "joint3": math.radians(-30.0), 
     #                   "joint4": math.radians(  0.0), 
     #                   "joint5": math.radians( -45.0), 
-    #                   "joint6": math.radians(  0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(  0.0)},
     
     "top_middle":   {"joint1": math.radians(  0.0), 
                       "joint2": math.radians(-25.0), 
                       "joint3": math.radians(-60.0), 
                       "joint4": math.radians(  0.0), 
                       "joint5": math.radians( -30.0), 
-                      "joint6": math.radians(  0.0),
-                      "drive_joint": 0.0},
+                      "joint6": math.radians(  0.0)},
     
     # "top_middle_2":   {"joint1": math.radians(  0.0), 
     #                   "joint2": math.radians(-5.0), 
     #                   "joint3": math.radians(-60.0), 
     #                   "joint4": math.radians(  0.0), 
     #                   "joint5": math.radians( -35.0), 
-    #                   "joint6": math.radians(  0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(  0.0)},
     
     # "top_far":     {"joint1": math.radians(  0.0), 
     #                   "joint2": math.radians( -20.0),  
     #                   "joint3": math.radians(-45.0), 
     #                   "joint4": math.radians(  0.0), 
     #                   "joint5": math.radians(  -35.0), 
-    #                   "joint6": math.radians(  0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(  0.0)},
     
     "top_far":     {"joint1": math.radians(  0.0), 
                     "joint2": math.radians(  0.0),  
                     "joint3": math.radians(-90.0), 
                     "joint4": math.radians(  0.0), 
                     "joint5": math.radians(-20.0), 
-                    "joint6": math.radians(  0.0),
-                    "drive_joint": 0.0},
+                    "joint6": math.radians(  0.0)},
     
     # "top_far_2":     {"joint1": math.radians(  0.0), 
     #                   "joint2": math.radians(  0.0),  
     #                   "joint3": math.radians(-65.0), 
     #                   "joint4": math.radians(  0.0), 
     #                   "joint5": math.radians(-35.0), 
-    #                   "joint6": math.radians(  0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(  0.0)},
     
     ##middle------------------------------------------------
     # "middle_close":  {"joint1": math.radians(0.0), 
@@ -613,48 +290,42 @@ pose_candidate = {
     #                   "joint3": math.radians( -5.0),  
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(45.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "middle_middle": {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-40.0), 
     #                   "joint3": math.radians(0.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-45.0),  
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "middle_far":    {"joint1": math.radians(0.0),  
     #                   "joint2": math.radians(15.0),  
     #                   "joint3": math.radians(-50.0),
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-50.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     "middle_close":  {"joint1": math.radians(  0.0), 
                       "joint2": math.radians(-90.0),
                       "joint3": math.radians(-25.0),  
                       "joint4": math.radians(  0.0), 
                       "joint5": math.radians( 25.0), 
-                      "joint6": math.radians( 0.0),
-                      "drive_joint": 0.0},
+                      "joint6": math.radians( 0.0)},
     
     "middle_middle": {"joint1": math.radians(  0.0), 
                       "joint2": math.radians(-45.0), 
                       "joint3": math.radians(-40.0), 
                       "joint4": math.radians(  0.0), 
                       "joint5": math.radians( -5.0),  
-                      "joint6": math.radians(  0.0),
-                      "drive_joint": 0.0},
+                      "joint6": math.radians(  0.0)},
     
     "middle_far":    {"joint1": math.radians(  0.0),  
                       "joint2": math.radians(  5.0),  
                       "joint3": math.radians(-80.0),
                       "joint4": math.radians(  0.0), 
                       "joint5": math.radians(-15.0), 
-                      "joint6": math.radians(  0.0),
-                      "drive_joint": 0.0},
+                      "joint6": math.radians(  0.0)},
 
     ##bottom------------------------------------------------
     # "bottom_close":  {"joint1": math.radians(0.0), 
@@ -662,72 +333,63 @@ pose_candidate = {
     #                   "joint3": math.radians(-5.0),   
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians( 50.0),
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom2_close2":  {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-70.0),   
     #                   "joint3": math.radians( 0.0),   
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians( 35.0),
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_middle": {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-60.0),  
     #                   "joint3": math.radians(-0.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(10.0),
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_middle_2": {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-30.0),  
     #                   "joint3": math.radians(-0.0), 
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-10.0),
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_far":    {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(-25.0),  
     #                   "joint3": math.radians(-15.0),
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-5.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     # "bottom_far_2":    {"joint1": math.radians(0.0), 
     #                   "joint2": math.radians(15.0),  
     #                   "joint3": math.radians(-45.0),
     #                   "joint4": math.radians(0.0), 
     #                   "joint5": math.radians(-5.0), 
-    #                   "joint6": math.radians(0.0),
-    #                   "drive_joint": 0.0},
+    #                   "joint6": math.radians(0.0)},
     
     "bottom_close":    {"joint1": math.radians(  0.0), 
                         "joint2": math.radians(-95.0),  
                         "joint3": math.radians(-10.0),
                         "joint4": math.radians(  0.0), 
                         "joint5": math.radians( 60.0), 
-                        "joint6": math.radians(  0.0),
-                        "drive_joint": 0.0},
+                        "joint6": math.radians(  0.0)},
     
     "bottom_middle":   {"joint1": math.radians(  0.0), 
                         "joint2": math.radians(-40.0),  
                         "joint3": math.radians(-25.0),
                         "joint4": math.radians(  0.0), 
                         "joint5": math.radians( 20.0), 
-                        "joint6": math.radians(  0.0),
-                        "drive_joint": 0.0},
+                        "joint6": math.radians(  0.0)},
     
     "bottom_far":      {"joint1": math.radians(  0.0), 
                         "joint2": math.radians(  5.0),  
                         "joint3": math.radians(-55.0),
                         "joint4": math.radians(  0.0), 
                         "joint5": math.radians(  5.0), 
-                        "joint6": math.radians(  0.0),
-                        "drive_joint": 0.0},
+                        "joint6": math.radians(  0.0)},
 }
 
 # initial_pose = pose_candidate["bottom_close"]
@@ -777,7 +439,9 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
     action_space = 6
-    observation_space = 35
+    # observation_space = 21
+    # observation_space = 24
+    observation_space = 23
     state_space = 0
 
     ## simulation
@@ -813,15 +477,18 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     
     ## robot
     UF_robot = ArticulationCfg(
-        prim_path="/World/envs/env_.*/UF_ROBOT",
+        prim_path="/World/envs/env_.*/xarm6",
         spawn=sim_utils.UsdFileCfg(
-            # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/xarm6_with_gripper/xarm6_with_gripper.usd",
+            # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/xarm6_robot_white/xarm6_robot_white.usd",
             usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Ufactory/xarm6/xarm6.usd",
             
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=True,
                 max_depenetration_velocity=5.0,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=False,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 enabled_self_collisions=False, solver_position_iteration_count=24, solver_velocity_iteration_count=1
@@ -835,45 +502,17 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         actuators={
             "ufactory_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3"],
-                # effort_limit = 50.0,
-                # velocity_limit = 2.8,
-                # stiffness = 800.0,
-                # damping = 40.0,
-                
                 effort_limit = 87.0,
-                # velocity_limit = 2.61,
-                velocity_limit = 5.5,
+                velocity_limit = 3.5,
                 stiffness = 2000.0,
                 damping = 100.0,
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["joint4", "joint5", "joint6"],
-                # effort_limit = 50.0,
-                # velocity_limit = 2.8,
-                # stiffness = 800.0,
-                # damping = 40.0,
-                
                 effort_limit = 87.0,
-                # velocity_limit = 2.61,
-                velocity_limit = 5.5,
+                velocity_limit = 3.5,
                 stiffness = 2000.0,
                 damping = 100.0,
-            ),
-            
-            "ufactory_gripper": ImplicitActuatorCfg(
-                # 그리퍼 관절 이름 (USD에 있는 이름: drive_joint 등)
-                joint_names_expr=["drive_joint"],#, "left_finger_joint", "left_inner_knuckle_joint", "right_inner_knuckle_joint,", "right_outer_knuckle_joint","right_finger_joint"],
-                effort_limit=100.0,
-                velocity_limit=1.0,
-                stiffness=1000.0,  # 꽉 잡고 있으라고 강성을 높게 줍니다
-                damping=200.0,     # 떨림을 잡기 위해 댐핑도 넉넉히 줍니다
-            ),
-            "ufactory_gripper_passive": ImplicitActuatorCfg(
-                joint_names_expr=["left_finger_joint", "left_inner_knuckle_joint", "right_inner_knuckle_joint", "right_outer_knuckle_joint","right_finger_joint"],
-                effort_limit=100.0,
-                velocity_limit=1.0,
-                stiffness=0.0,  # [핵심] 0으로 설정해서 저항하지 않게 함
-                damping=0.0,    # [핵심] 0으로 설정
             ),
         },
     )
@@ -881,8 +520,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## camera
     if camera_enable:
         camera = CameraCfg(
-            # prim_path="/World/envs/env_.*/xarm6/link6/hand_camera",
-            prim_path="/World/envs/env_.*/UF_ROBOT/link6/hand_camera",
+            prim_path="/World/envs/env_.*/xarm6/link6/hand_camera",
             update_period=0.03,
             height=480,
             width=640,
@@ -1063,20 +701,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/link6")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
         lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/gripper/left_finger")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
         rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/UF_ROBOT/gripper/right_finger")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/xarm6/link6")),
             self.device,
         )
         
@@ -1121,6 +756,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self.new_box_pos_rand = torch.zeros((self.num_envs, 3), device=self.device)
         self.rand_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        # self.rand_pos_step = torch.zeros((self.num_envs, 3), device=self.device)
         
         self.current_box_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.current_box_pos = torch.zeros((self.num_envs, 3), device=self.device)
@@ -1153,16 +789,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.depth_publisher = self.node.create_publisher(Image, '/depth',10)
             
             self.bridge = CvBridge()
-            
-        if foundationpose_mode:
-            self.latest_detection_msg = None
-            self.foundationpose_node = rclpy.create_node('foundationpose_receiver')
-            self.foundationpose_node.create_subscription(
-                Point,
-                '/object_position',
-                self.foundationpose_callback,
-                10
-            )
         
         self.prev_box_pos_w = torch.zeros((self.num_envs, 3), device=self.device)
         self.prev_box_pos_c = torch.zeros((self.num_envs, 3), device=self.device)
@@ -1392,45 +1018,60 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # self.actions = actions.clone().clamp(-1.0, 1.0)
+                
         # current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
-        
         # potential_targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * current_action_scale
         # potential_targets_clamped = torch.clamp(potential_targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+
+        # if training_mode:
+        #     self.robot_dof_targets[:] = potential_targets_clamped
+        # else:            
+        #     hold_targets = self.current_joint_pos_buffer
+
+        #     visible_mask_expanded = self.is_object_visible_mask.unsqueeze(-1) 
+            
+        #     self.robot_dof_targets[:] = torch.where(
+        #         visible_mask_expanded, 
+        #         potential_targets_clamped,  # 시야 O: 행동 적용
+        #         # hold_targets                # 시야 X: 현재 위치 고수 (정지)
+        #         potential_targets_clamped
+        #     )
+
+        # self.cfg.current_time = self.cfg.current_time + self.dt
+        # current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
         self.actions = actions.clone().clamp(-1.0, 1.0)
         current_action_scale = self.action_scale_tensor.unsqueeze(-1) 
         
-        # 1. 전체 관절(12개)의 기존 타겟을 복제 (그리퍼 포함)
-        potential_targets = self.robot_dof_targets.clone()
+        # [수정] 전체 관절(12개) 중 제어 가능한 앞쪽 6개(Arm)만 추출하여 연산
+        arm_targets = self.robot_dof_targets[:, :6]
+        arm_speed_scales = self.robot_dof_speed_scales[:6]
         
-        # 2. 팔(Arm)에 해당하는 인덱스 정의 (0~5번)
-        arm_indices = slice(0, 6) 
+        # Action 적용 (크기 6끼리 연산: 6 + 6 * 6 * 1)
+        new_arm_targets = arm_targets + arm_speed_scales * self.dt * self.actions * current_action_scale
         
-        # 3. 팔 관절(6개)에만 Action 적용
-        # [수정 포인트] robot_dof_speed_scales도 전체 12개이므로 [:, arm_indices]로 잘라야 합니다.
-        potential_targets[:, arm_indices] = (
-            self.robot_dof_targets[:, arm_indices] + 
-            self.robot_dof_speed_scales[arm_indices] * self.dt * self.actions * current_action_scale
-        )
+        # Limit Clamping (Limits도 앞쪽 6개만 사용)
+        lower_limits = self.robot_dof_lower_limits[:6]
+        upper_limits = self.robot_dof_upper_limits[:6]
         
-        # 4. 전체 관절(12개)에 대해 한계(Limit) 적용 (그리퍼도 안전하게 보호)
-        potential_targets_clamped = torch.clamp(potential_targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        
+        potential_targets_clamped = torch.clamp(new_arm_targets, lower_limits, upper_limits)
+
         if training_mode:
-            # pass
-            self.robot_dof_targets[:] = potential_targets_clamped
+            # [수정] 계산된 6개 타겟을 전체 배열의 앞부분에 업데이트
+            self.robot_dof_targets[:, :6] = potential_targets_clamped
         else:            
+            # 테스트 모드 로직 (시야에 있을 때만 이동 등)
             visible_mask_expanded = self.is_object_visible_mask.unsqueeze(-1) 
             
-            self.robot_dof_targets[:] = torch.where(
+            updated_targets = torch.where(
                 visible_mask_expanded, 
-                potential_targets_clamped,  # 시야 O: 행동 적용
-                # hold_targets                # 시야 X: 현재 위치 고수 (정지)
-                potential_targets_clamped
+                potential_targets_clamped,  # 시야 O: 업데이트된 타겟
+                arm_targets                 # 시야 X: 기존 타겟 유지
             )
+            # [수정] 6개만 업데이트
+            self.robot_dof_targets[:, :6] = updated_targets
 
         self.cfg.current_time = self.cfg.current_time + self.dt
-        current_time = torch.tensor(self.cfg.current_time, device=self.device, dtype=torch.float32)
         
         if image_publish:   
             self.last_publish_time += self.dt
@@ -1622,7 +1263,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         global robot_init_pose
         
         target_pos = self.robot_dof_targets.clone()
-        
+    
         joint4_index = self._robot.find_joints(["joint4"])[0]
         joint6_index = self._robot.find_joints(["joint6"])[0]
         target_pos[:, joint4_index] = 0.0
@@ -1644,18 +1285,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
                 joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
                 max_err = torch.max(joint_err).item()
-                
-                if foundationpose_mode:
-                    pos = self.subscribe_object_pos()
-                    if (max_err < 0.3) and (pos is not None):
-                        self.init_cnt += 1
-                        print(f"init_cnt : {self.init_cnt}")
-                        
-                        if self.init_cnt > 50: 
-                            robot_action = True
-                            robot_init_pose = True
                             
-                elif foundationpose_mode == False and max_err < 0.3:
+                if max_err < 2.0:
                     self.init_cnt += 1
                     print(f"init_cnt : {self.init_cnt}")
                     if self.init_cnt > 50:
@@ -1674,7 +1305,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 joint_err = torch.abs(self._robot.data.joint_pos - init_pos)
                 max_err = torch.max(joint_err).item()
                 
-                if max_err < 0.3:
+                print("max_err:", max_err)
+                
+                if max_err < 2.0:
                     robot_init_pose = True
                     robot_action = True
                 
@@ -2151,7 +1784,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 # [기존] 전체 평균 통계 계산
                 if len(env_ids) > 0:
                     current_actual_lengths = self.episode_length_buf[env_ids].float() + 1e-6
-                    print("self.episode_length_buf[env_ids].float(): ", self.episode_length_buf[env_ids].float())
 
                     # A. 평균 성공률
                     avg_success_ratio_val = (self.success_steps_buf[env_ids] / current_actual_lengths).mean().item()
@@ -2262,21 +1894,21 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 if len(env_ids_level_0) > 0:
                     self.object_move_state[env_ids_level_0] = self.MOVE_STATE_STATIC
                     self.obj_speed[env_ids_level_0] = 0.0
-                    self.action_scale_tensor[env_ids_level_0] = 5.0 
+                    self.action_scale_tensor[env_ids_level_0] = 3.0 
                     self._perform_static_reset(env_ids_level_0) 
 
                 # [신규] Level 1: (Moving 0.0005, Robot Speed 0.5) - 물체 이동 먼저
                 if len(env_ids_level_1) > 0:
                     self.object_move_state[env_ids_level_1] = self.MOVE_STATE_LINEAR
                     self.obj_speed[env_ids_level_1] = 0.05 # 물체 이동 시작
-                    self.action_scale_tensor[env_ids_level_1] = 5.0 # 로봇 속도 유지
+                    self.action_scale_tensor[env_ids_level_1] = 3.0 # 로봇 속도 유지
                     self._perform_linear_reset(env_ids_level_1)
 
                 # [신규] Level 2: (Moving 0.0005, Robot Speed 1.0) - 다음 로봇 속도 증가
                 if len(env_ids_level_2) > 0:
                     self.object_move_state[env_ids_level_2] = self.MOVE_STATE_LINEAR
                     self.obj_speed[env_ids_level_2] = 0.10
-                    self.action_scale_tensor[env_ids_level_2] = 5.0 # 로봇 속도 증가
+                    self.action_scale_tensor[env_ids_level_2] = 3.0 # 로봇 속도 증가
                     self._perform_linear_reset(env_ids_level_2)
 
                 # [신규] Level 3: (Moving Random, Robot Speed 1.0) - 다음 물체 속도 증가
@@ -2284,7 +1916,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     self.object_move_state[env_ids_level_3] = self.MOVE_STATE_LINEAR
                     num_level_3 = len(env_ids_level_3)
                     self.obj_speed[env_ids_level_3] = 0.20
-                    self.action_scale_tensor[env_ids_level_3] = 5.0 # 로봇 속도 유지
+                    self.action_scale_tensor[env_ids_level_3] = 3.0 # 로봇 속도 유지
                     self._perform_linear_reset(env_ids_level_3)
 
                 # [신규] Level 4: (Moving Random, Robot Speed 1.5) - 최종
@@ -2293,7 +1925,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     # 0.5(최대) - 0.3(최소) = 0.2 (범위)
                     num_level_4 = len(env_ids_level_4)
                     self.obj_speed[env_ids_level_4] = 0.40
-                    self.action_scale_tensor[env_ids_level_4] = 5.0 # 로봇 속도 증가
+                    self.action_scale_tensor[env_ids_level_4] = 3.0 # 로봇 속도 증가
                     self._perform_linear_reset(env_ids_level_4)
                     
                 if len(env_ids_level_5) > 0:
@@ -2301,7 +1933,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     # 0.5(최대) - 0.3(최소) = 0.2 (범위)
                     num_level_4 = len(env_ids_level_5)
                     self.obj_speed[env_ids_level_5] = 0.60
-                    self.action_scale_tensor[env_ids_level_5] = 5.0 # 로봇 속도 증가
+                    self.action_scale_tensor[env_ids_level_5] = 3.0 # 로봇 속도 증가
                     self._perform_linear_reset(env_ids_level_5)
 
             else: # training_mode == False (테스트 모드)
@@ -2354,30 +1986,55 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     #         / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
     #         - 1.0
     #     )
-
+        
+    #     # [1] 월드 기준 현재 위치 (Ground Truth)
+    #     box_pos_w_cur = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
+        
+    #     # [2] 카메라 기준 현재 위치 (Calculated)
     #     camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
-    #     box_pos_cam_obs, _ = self.world_to_camera_pose(
+    #     box_pos_c_cur, _ = self.world_to_camera_pose(
     #         camera_pos_w, camera_rot_w,
-    #         self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins, # box_grasp_pos 대신 link pos 사용
-    #         self.box_grasp_rot # 회전은 크게 중요치 않음
+    #         box_pos_w_cur, 
+    #         self.box_grasp_rot
     #     )
+    #     box_pos_c_cur = box_pos_c_cur[:, 0:3]
+
+    #     # [3] Observation 구성
+    #     # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
+    #     # print("box_pos_c_cur :", box_pos_c_cur)
+        
+    #     target_dist = 0.40
+    #     current_depth = box_pos_c_cur[:, 2]
+    #     z_error = (current_depth - target_dist).unsqueeze(-1)
+        
+    #     xy_offset = torch.norm(box_pos_c_cur[:, 0:2], p=2, dim=-1).unsqueeze(-1)
         
     #     obs = torch.cat(
     #         (
-    #             dof_pos_scaled,
-    #             self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
-    #             box_pos_cam_obs[:, 0:3], 
-    #             self._box.data.body_link_pos_w[:, 0, 0:3],
-    #             self._box.data.body_link_vel_w[:, 0, 0:3],
+    #             dof_pos_scaled,                                             # 1. 로봇 관절
+    #             self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
+                
+    #             box_pos_c_cur,
+                
+    #             box_pos_w_cur,
+    #             self.prev_box_pos_w,
+                
+    #             z_error,
+    #             xy_offset,
     #         ),
     #         dim=-1,
     #     )
+        
+    #     # [4] 다음 스텝을 위해 현재를 과거로 저장
+    #     self.prev_box_pos_w = box_pos_w_cur.clone()
+    #     self.prev_box_pos_c = box_pos_c_cur.clone()
         
     #     return {"policy": torch.clamp(obs, -5.0, 5.0),}
     
     def _get_observations(self) -> dict:
         self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
         
+        # [수정] 전체 관절(12개)에 대해 스케일링 계산
         dof_pos_scaled = (
             2.0
             * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
@@ -2398,19 +2055,18 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos_c_cur = box_pos_c_cur[:, 0:3]
 
         # [3] Observation 구성
-        # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
-        # print("box_pos_c_cur :", box_pos_c_cur)
-        
         target_dist = 0.40
         current_depth = box_pos_c_cur[:, 2]
         z_error = (current_depth - target_dist).unsqueeze(-1)
         
         xy_offset = torch.norm(box_pos_c_cur[:, 0:2], p=2, dim=-1).unsqueeze(-1)
         
+        # [수정 중요!] 전체 관절(12개) 중 앞의 6개(xArm 본체)만 슬라이싱하여 사용
+        # 12 -> 6 으로 줄임으로써 전체 크기를 35 -> 23으로 맞춤
         obs = torch.cat(
             (
-                dof_pos_scaled,                                             # 1. 로봇 관절
-                self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
+                dof_pos_scaled[:, :6],                                      # [수정됨] 12개 중 앞 6개만
+                (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)[:, :6], # [수정됨] 12개 중 앞 6개만
                 
                 box_pos_c_cur,
                 
@@ -2616,6 +2272,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # 시야를 놓치면 레벨에 따라 감점 (-0.1 ~ -1.0)
         is_blind = self.is_pview_fail.float()
         blind_penalty = is_blind * (-blind_penalty_scale)
+        
+        
         
         # C. 최종 합산
         # (잘했니?) + (다가갔니?) - (놓쳤니?)
