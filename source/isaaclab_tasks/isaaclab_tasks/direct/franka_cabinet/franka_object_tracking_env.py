@@ -28,6 +28,7 @@ from isaaclab.assets import RigidObjectCfg, RigidObject
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg #, CollisionPropertiesCfg
 from isaaclab.sim.schemas import modify_collision_properties, CollisionPropertiesCfg
+from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg # [수정] ContactSensor, ContactSensorCfg 추가
 
 from builtin_interfaces.msg import Time
 
@@ -55,7 +56,13 @@ import os
 
 from pxr import Usd, UsdPhysics, PhysxSchema, UsdGeom
 import omni.usd
-from isaaclab.sim import spawn_from_usd 
+from isaaclab.sim import spawn_from_usd
+
+import multiprocessing as mp
+from multiprocessing import Process, Queue
+import queue # Full 예외 처리를 위해 필요
+
+import atexit
 
 class RobotType(Enum):
     FRANKA = "franka"
@@ -82,18 +89,18 @@ robot_fix = False
 init_reward = True
 reset_flag = True
 
-# add_episode_length = 200
+add_episode_length = 200
 # add_episode_length = -800
-add_episode_length = -900
+# add_episode_length = -900
 
 rand_pos_range = {
     "x" : (  0.35, 0.75),
     "y" : ( -0.50, 0.50),
     "z" : (  0.08, 0.75),
     
-    # "x" : (  0.7, 0.7),
-    # "y" : (  -0.0, 0.0),
-    # "z" : (  0.2, 0.6),
+    # "x" : (  0.25, 0.45),
+    # "y" : ( -0.00, 0.00),
+    # "z" : (  0.65, 0.65),
 }
 
 reward_curriculum_levels = [
@@ -433,6 +440,71 @@ zone_keys = list(pose_candidate.keys())
 
 CSV_FILEPATH = "/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/tracking_data.csv"
 
+def run_realtime_plotter(data_queue):
+    """
+    별도의 프로세스에서 실행되는 Matplotlib 시각화 루프
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    # 그래프 초기화 (한 번만 실행)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    grasp_line, = ax.plot([], [], color='red', linewidth=5, label='Grasp Width')
+    ax.scatter([0], [0], color='black', s=50, marker='+')
+    
+    # 텍스트 및 설정
+    info_text = ax.text(0.05, 0.95, '', transform=ax.transAxes, 
+                        verticalalignment='top', fontsize=12, 
+                        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    ax.set_title('Grasping Angle & Width (Async)')
+    ax.set_xlim(-0.10, 0.10)
+    ax.set_ylim(-0.10, 0.10)
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True, linestyle=':', alpha=0.6)
+    
+    plt.show(block=False)
+    
+    # 무한 루프: 큐에서 데이터를 꺼내 그림
+    while True:
+        try:
+            # 1. 큐에서 데이터 가져오기 (0.1초 대기)
+            # 메인 프로세스가 종료 신호('STOP')를 보내면 루프 종료
+            data = data_queue.get(timeout=0.1)
+            
+            if data == "STOP":
+                print("[Plotter] 종료 신호를 받았습니다.")
+                break
+            
+            angle_deg, width_m = data
+            
+            # 2. 그리기 연산
+            theta = np.radians(angle_deg)
+            half_w = width_m / 2.0
+            
+            dx = half_w * np.cos(theta)
+            dy = half_w * np.sin(theta)
+            
+            p1_x, p1_y = -dx, -dy
+            p2_x, p2_y = dx, dy
+            
+            grasp_line.set_data([p1_x, p2_x], [p1_y, p2_y])
+            info_text.set_text(f"Angle: {angle_deg:.1f}°\nWidth: {width_m*100:.1f} cm")
+            
+            # 3. 화면 갱신
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            
+        except queue.Empty:
+            # 큐가 비어있으면 그냥 계속 화면만 유지 (GUI 응답성 확보)
+            fig.canvas.flush_events()
+            continue
+        except Exception as e:
+            print(f"[Plotter Error] {e}")
+            break
+            
+    plt.close()
+
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## env
@@ -459,7 +531,11 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     )
 
     ## scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(
+        num_envs=4096, 
+        env_spacing=3.0, 
+        replicate_physics=True,
+    )
 
     ## ground plane
     terrain = TerrainImporterCfg(
@@ -482,7 +558,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/xarm6_robot_white/xarm6_robot_white.usd",
             usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/ROBOT/Ufactory/xarm6/xarm6.usd",
             
-            activate_contact_sensors=False,
+            activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=True,
                 max_depenetration_velocity=5.0,
@@ -516,6 +592,13 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
             ),
         },
     )
+    
+    contact_forces = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/xarm6/gripper/.*(finger|knuckle|base_link)",
+        update_period=0.0, 
+        history_length=6, 
+        debug_vis=True
+    )
 
     ## camera
     if camera_enable:
@@ -543,7 +626,8 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/base_link",
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0, 0.08), rot=(0.923, 0, 0, -0.382)),
         spawn=UsdFileCfg(
-            usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/006_mustard_bottle/006_mustard_bottle.usd",
+            # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/006_mustard_bottle/006_mustard_bottle.usd",
+            usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/010_potted_meat_can/010_potted_meat_can.usd",
             scale=(1.0, 1.0, 1.0),
             rigid_props=RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
@@ -576,16 +660,38 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.dt = self.cfg.sim.dt * self.cfg.decimation
 
         if not training_mode and test_graph_mode:
-            if os.path.exists(CSV_FILEPATH):
-                os.remove(CSV_FILEPATH)
-                print(f"'{CSV_FILEPATH}' 파일을 삭제하고 새로 시작합니다.")
+            # 1. CSV 파일 경로 설정 (이전 에러 해결)
+            self.csv_filepath = CSV_FILEPATH 
             
-            self.csv_filepath = "tracking_data.csv"
+            if os.path.exists(self.csv_filepath):
+                try:
+                    os.remove(self.csv_filepath)
+                except OSError:
+                    pass
+            
             with open(self.csv_filepath, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['gripper_x', 'gripper_y', 'gripper_z', 
-                                 'object_x', 'object_y', 'object_z',
-                                 'cam_x', 'cam_y','distance'])
+                writer.writerow(['grip_x', 'grip_y', 'grip_z', 
+                                 'obj_x', 'obj_y', 'obj_z', 
+                                 'cam_x', 'cam_y', 
+                                 'distance'])
+
+            # 2. [핵심] 그래프 데이터 저장용 딕셔너리 초기화 (이게 없어서 에러 발생함)
+            self.graph_data = {
+                "gripper_positions": [],
+                "object_positions": [],
+                "object_pos_in_cam": []
+            }
+
+            # 3. 멀티프로세싱 설정
+            self.plot_queue = Queue(maxsize=1) 
+            self.plot_process = Process(target=run_realtime_plotter, args=(self.plot_queue,))
+            self.plot_process.daemon = True 
+            self.plot_process.start()
+            
+            atexit.register(self.close)
+            
+            print("[Info] 실시간 시각화 프로세스가 시작되었습니다.")
                 
         self.log_counter = 0
         self.LOG_INTERVAL = 6 
@@ -918,79 +1024,92 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         obj_rot_world = self.quat_mul(camera_rot_w, obj_rot_cam)
         
         return obj_pos_world, obj_rot_world
-        
+    
     def _initialize_realtime_plots(self):
-        """실시간 그래프를 위한 Figure와 Axes를 초기화합니다."""
-        from matplotlib.patches import Circle
+        """실시간 Grasping 정보 시각화 (위치 무시, 각도/너비 전용)"""
+        plt.ion()
         
-        plt.ion()  # 대화형 모드 켜기
-        
-        # Figure 1: 3D Trajectory
-        self.fig1 = plt.figure(figsize=(8, 7))
+        # Figure 1: 3D Trajectory (필요 없다면 최소화하거나 무시)
+        # 3D 그래프가 에러를 유발하지 않게 빈 껍데기만 유지하거나, 원하시면 아예 삭제해도 됩니다.
+        self.fig1 = plt.figure(figsize=(5, 5))
         self.ax1 = self.fig1.add_subplot(111, projection='3d')
-        self.traj_obj_line, = self.ax1.plot([], [], [], label='Object Trajectory', color='blue')
-        self.traj_grip_line, = self.ax1.plot([], [], [], label='Gripper Trajectory', color='red', linestyle='--')
-        self.ax1.set_title('Real-time 3D Trajectory')
-        self.ax1.set_xlabel('X'); self.ax1.set_ylabel('Y'); self.ax1.set_zlabel('Z')
-        self.ax1.legend()
-        self.ax1.grid(True)
-        
-        # Figure 2: Camera View
-        self.fig2, self.ax2 = plt.subplots(figsize=(7, 7))
-        self.cam_scatter = self.ax2.scatter([], [], label='Object in Camera View')
-        self.ax2.axhline(0, color='black', linestyle='--', linewidth=1)
-        self.ax2.axvline(0, color='black', linestyle='--', linewidth=1)
-        self.ax2.set_title('Real-time Object Position in Camera Frame')
-        self.ax2.set_xlabel('X'); self.ax2.set_ylabel('Y')
-        self.ax2.set_aspect('equal', adjustable='box')
-        self.ax2.grid(True)
+        self.traj_obj_line, = self.ax1.plot([], [], [], label='Object', color='blue')
+        self.traj_grip_line, = self.ax1.plot([], [], [], label='Gripper', color='red', linestyle='--')
+        self.ax1.set_visible(False) # 3D 그래프 숨기기 (속도 향상)
 
-        # pview_margin 원 추가 (초기 레벨 기준)
-        pview_margin = reward_curriculum_levels[0]["pview_margin"]
-        self.margin_circle = Circle((0, 0), pview_margin, color='red', fill=False, linestyle='-.', label=f'pview_margin')
-        self.ax2.add_artist(self.margin_circle)
-        self.ax2.legend()
+        # Figure 2: Grasping Gauge (Main)
+        self.fig2, self.ax2 = plt.subplots(figsize=(6, 6))
         
-        plt.show(block=False) # 창을 띄우되, 코드 실행을 막지 않음
+        # [핵심] 중앙에 고정된 Grasp Line (빨간색 굵은 선)
+        self.grasp_line, = self.ax2.plot([], [], color='red', linewidth=5, label='Grasp Width')
+        
+        # 중심점 표시 (검은 점)
+        self.ax2.scatter([0], [0], color='black', s=50, marker='+')
+
+        # 십자선 (기준선)
+        self.ax2.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        self.ax2.axvline(0, color='gray', linestyle='--', linewidth=0.5)
+        
+        # 텍스트 정보 표시 (좌측 상단)
+        self.info_text = self.ax2.text(0.05, 0.95, '', transform=self.ax2.transAxes, 
+                                       verticalalignment='top', fontsize=12, 
+                                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+        self.ax2.set_title('Grasping Angle & Width (Centered)')
+        self.ax2.set_xlabel('Width (m)')
+        self.ax2.set_ylabel('Width (m)')
+        
+        # [중요] 축 범위를 고정하여 막대가 잘 보이게 함 (예: +/- 10cm)
+        self.ax2.set_xlim(-0.10, 0.10)
+        self.ax2.set_ylim(-0.10, 0.10)
+        self.ax2.set_aspect('equal', adjustable='box')
+        self.ax2.grid(True, linestyle=':', alpha=0.6)
+        
+        plt.show(block=False)
         
     def _update_realtime_plots(self):
-        """수집된 데이터로 그래프를 업데이트합니다."""
-        # 데이터가 없으면 실행하지 않음
-        if not self.graph_data["gripper_positions"]:
+        """계산된 데이터를 시각화 프로세스로 전송 (Non-blocking)"""
+        
+        # PCA 정보가 없으면 패스
+        if not hasattr(self, 'debug_grasp_info') or self.debug_grasp_info is None:
             return
 
-        # numpy 배열로 변환
-        gripper_pos = np.array(self.graph_data["gripper_positions"])
-        object_pos = np.array(self.graph_data["object_positions"])
-        cam_pos = np.array(self.graph_data["object_pos_in_cam"])
+        angle_deg = self.debug_grasp_info["angle"]
+        width_m = self.debug_grasp_info["width"]
         
-        # --- 3D Trajectory 업데이트 ---
-        self.traj_obj_line.set_data(object_pos[:, 0], object_pos[:, 1])
-        self.traj_obj_line.set_3d_properties(object_pos[:, 2])
-        self.traj_grip_line.set_data(gripper_pos[:, 0], gripper_pos[:, 1])
-        self.traj_grip_line.set_3d_properties(gripper_pos[:, 2])
-        
-        # 축 범위 자동 조절
-        self.ax1.relim()
-        self.ax1.autoscale_view(True, True, True)
-        
-        # --- Camera View 업데이트 ---
-        # Scatter는 set_offsets로 효율적으로 업데이트
-        self.cam_scatter.set_offsets(cam_pos)
-        
-        # 현재 레벨에 맞는 pview_margin으로 원 업데이트
-        current_level = self.current_reward_level[0].item()
-        pview_margin = reward_curriculum_levels[current_level]["pview_margin"]
-        self.margin_circle.set_radius(pview_margin)
-        
-        # 축 범위 자동 조절
-        self.ax2.relim()
-        self.ax2.autoscale_view(True, True)
+        # [핵심 성능 최적화]
+        # 큐가 꽉 차있으면(시각화 프로세스가 바쁘면) 기다리지 않고 이번 프레임은 버림.
+        # 이렇게 해야 시뮬레이션 속도가 느려지지 않음.
+        try:
+            self.plot_queue.put_nowait((angle_deg, width_m))
+        except queue.Full:
+            pass # 큐가 찼으면 그냥 넘어감 (Drop frame)
+    
+    def close(self):
+        """환경 종료 시 호출되는 함수: 그래프 프로세스 정리"""
+        # 프로세스가 살아있다면
+        if hasattr(self, 'plot_process') and self.plot_process.is_alive():
+            print("[Info] 시각화 프로세스 종료 신호 전송 중...")
+            
+            try:
+                # 1. 큐에 "STOP" 메시지를 보내서 run_realtime_plotter 함수가 루프를 탈출하게 유도
+                self.plot_queue.put("STOP")
+                
+                # 2. 프로세스가 스스로 창을 닫고 꺼질 때까지 최대 3초 대기
+                self.plot_process.join(timeout=3.0)
+                
+            except Exception as e:
+                print(f"[Warning] 큐 전송 중 오류: {e}")
 
-        # 캔버스 다시 그리기
-        self.fig1.canvas.draw()
-        self.fig2.canvas.draw()
-        plt.pause(0.001) # GUI가 업데이트될 시간을 줌
+            # 3. 3초 기다려도 안 꺼지면 그때 강제 종료 (최후의 수단)
+            if self.plot_process.is_alive():
+                print("[Info] 반응이 없어 시각화 프로세스를 강제 종료합니다.")
+                self.plot_process.terminate()
+                self.plot_process.join()
+            else:
+                print("[Info] 시각화 프로세스가 정상적으로 종료되었습니다.")
+            
+        super().close()
     
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.UF_robot)
@@ -1010,6 +1129,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         if camera_enable:
             self._camera = Camera(self.cfg.camera)
             self.scene.sensors["hand_camera"] = self._camera
+            
+        self._contact_sensor = ContactSensor(self.cfg.contact_forces)
+        # self._contact_sensor.initialize(self.scene.env_prim_paths_expr)
+        self.scene.sensors["contact_sensor"] = self._contact_sensor
+        
+        # self._contact_sensor = self.scene.sensors["contact_forces"]
         
         self._box = RigidObject(self.cfg.box)
         self.scene.rigid_objects["base_link"] = self._box
@@ -1066,7 +1191,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             updated_targets = torch.where(
                 visible_mask_expanded, 
                 potential_targets_clamped,  # 시야 O: 업데이트된 타겟
-                arm_targets                 # 시야 X: 기존 타겟 유지
+                potential_targets_clamped,
+                # arm_targets                 # 시야 X: 기존 타겟 유지
             )
             # [수정] 6개만 업데이트
             self.robot_dof_targets[:, :6] = updated_targets
@@ -1270,6 +1396,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         target_pos[:, joint6_index] = 0.0
         target_pos[:, 7:] = 0.0
         
+        if not training_mode and test_graph_mode:
+            rgb_data = self._camera.data.output["rgb"]
+            depth_data = self._camera.data.output["depth"]
+            
+            # 0번 환경에 대해서만 계산 수행
+            result = self.calculate_pca_grasping(rgb_data, depth_data, env_id=0)
+            
+            # 결과가 유효하면 클래스 변수에 저장 (시각화 함수에서 사용)
+            if result is not None and result[0] is not None:
+                angle, width, center = result
+                self.debug_grasp_info = {"angle": angle, "width": width}
+            else:
+                self.debug_grasp_info = None
+        
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
                 self._robot.set_joint_position_target(target_pos)
@@ -1313,6 +1453,147 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 
             elif robot_init_pose:
                 self._robot.set_joint_position_target(target_pos)
+        
+        rgb_data = self._camera.data.output["rgb"]
+        depth_data = self._camera.data.output["depth"]
+        
+        # 1. 결과를 하나의 변수로 받습니다.
+        result = self.calculate_pca_grasping(rgb_data, depth_data)
+
+        # 2. 결과가 유효한지(None이 아닌지) 확인합니다.
+        if result is not None:
+            # 3. 유효하다면 언패킹합니다.
+            gripper_angle, gripper_width, center = result
+
+            # 여기서 None 체크를 한 번 더 해주는 것이 안전합니다 (함수가 (None, None, None)을 리턴했을 수도 있음)
+            if gripper_angle is not None:
+                print(f"Grasping Info -> Angle: {gripper_angle:.2f}, Width: {gripper_width:.4f}")
+
+                # [활용 예시] 로봇 제어에 활용하거나 로그 저장
+                # self.latest_grasp_angle = gripper_angle
+            else:
+                print("물체 감지 실패 (조건 불만족)")
+        else:
+            print("물체 감지 실패 (함수 반환값 None)")
+        
+        # gripper_angle, gripper_width, _ = self.calculate_pca_grasping(rgb_data, depth_data)
+        # print("gripper_angle, gripper_width :", gripper_angle, gripper_width)
+
+    def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
+        """
+        RGB-D 이미지에서 PCA를 수행하여 물체의 파지 각도, 너비, 중심점을 계산합니다.
+        (수정됨: Depth 이미지 차원 처리 버그 수정)
+        """
+        try:
+            # ---------------------------------------------------------
+            # 1. 데이터 전처리 (Tensor -> NumPy, Device -> Host)
+            # ---------------------------------------------------------
+            if isinstance(rgb_image, torch.Tensor):
+                rgb_image = rgb_image.cpu().numpy()
+            if isinstance(depth_image, torch.Tensor):
+                depth_image = depth_image.cpu().numpy()
+
+            # [수정 핵심] 차원 축소 로직 개선
+            # RGB 처리: (N, H, W, C) -> (H, W, C)
+            if rgb_image.ndim == 4:
+                rgb_image = rgb_image[env_id]
+            
+            # Depth 처리: (N, H, W, 1) -> (H, W)
+            # 1단계: 배치 차원 선택
+            if depth_image.ndim == 4:
+                depth_image = depth_image[env_id] # 결과: (H, W, 1)
+            elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: 
+                # (N, H, W)인 경우 (드물지만 대비)
+                depth_image = depth_image[env_id] # 결과: (H, W)
+
+            # 2단계: 채널 차원(1) 제거 -> 최종적으로 (H, W) 2차원이 되어야 함
+            if depth_image.ndim == 3 and depth_image.shape[-1] == 1:
+                depth_image = depth_image.squeeze(-1) # 결과: (H, W)
+            
+            # ---------------------------------------------------------
+            # 2. RGB 포맷 변환
+            # ---------------------------------------------------------
+            # RGBA(4채널) -> RGB(3채널)
+            if rgb_image.shape[-1] == 4:
+                rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
+            
+            # Float(0~1) -> Int(0~255)
+            if rgb_image.dtype != np.uint8:
+                if rgb_image.max() <= 1.1: 
+                    rgb_image = (rgb_image * 255).astype(np.uint8)
+                else:
+                    rgb_image = rgb_image.astype(np.uint8)
+
+            # ---------------------------------------------------------
+            # 3. 물체 영역 검출 (HSV 색상 기반)
+            # ---------------------------------------------------------
+            hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
+            
+            # [색상 설정 확인] 머스타드(노란색) vs 캔(빨간색)
+            # 현재 사용 중인 물체(Potted Meat Can)가 빨간색 계열이라면 아래 주석을 풀어주세요.
+            # lower_color = np.array([0, 100, 100]); upper_color = np.array([10, 255, 255]) 
+            
+            # 머스타드 병 (기본)
+            lower_color = np.array([20, 100, 100])
+            upper_color = np.array([35, 255, 255])
+            
+            mask = cv2.inRange(hsv, lower_color, upper_color)
+            
+            kernel = np.ones((3, 3), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            
+            # ---------------------------------------------------------
+            # 4. 윤곽선 및 PCA
+            # ---------------------------------------------------------
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if not contours:
+                return None, None, None 
+
+            max_contour = max(contours, key=cv2.contourArea)
+            
+            if cv2.contourArea(max_contour) < 100:
+                return None, None, None
+
+            pts = max_contour.reshape(-1, 2).astype(np.float64)
+            mean, eigenvectors, eigenvalues = cv2.PCACompute2(pts, mean=np.array([]))
+            
+            cx, cy = int(mean[0][0]), int(mean[0][1])
+            center = (cx, cy)
+
+            major_axis = eigenvectors[0]
+            angle_rad = np.arctan2(major_axis[1], major_axis[0])
+            grasp_angle_deg = np.degrees(angle_rad)
+            
+            rect = cv2.minAreaRect(max_contour)
+            (rect_center, (w, h), rect_angle) = rect
+            pixel_width = min(w, h)
+            
+            # ---------------------------------------------------------
+            # 5. 실제 물리 거리 변환 (Depth 활용)
+            # ---------------------------------------------------------
+            # 이제 depth_image는 확실히 (H, W) 형태이므로 안전하게 접근 가능
+            if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
+                d_val = depth_image[cy, cx]
+            else:
+                d_val = 0.0 # 범위 벗어남
+            
+            if np.isinf(d_val) or np.isnan(d_val) or d_val <= 0:
+                d_val = 0.4 
+
+            # 카메라 Intrinsic 사용
+            intrinsics = self._camera.data.intrinsic_matrices[env_id]
+            fx = intrinsics[0, 0].item()
+            
+            real_width_m = d_val * (pixel_width / fx)
+            real_width_m = np.clip(real_width_m, 0.0, 0.15) 
+
+            return grasp_angle_deg, real_width_m, center
+
+        except Exception as e:
+            # 에러 발생 시 로그 출력 (디버깅용)
+            # print(f"[PCA Error] {e}") 
+            return None, None, None
         
     # post-physics step calls
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1368,6 +1649,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                                 distance_val])
                 f.flush() 
                 os.fsync(f.fileno()) 
+            
+            self.graph_data["gripper_positions"].append(gripper_pos)
+            self.graph_data["object_positions"].append(object_pos)
+            self.graph_data["object_pos_in_cam"].append(cam_pos)
+            
+            # 2. 그래프 업데이트 함수 호출 (화면 갱신)
+            self._update_realtime_plots()
         
         # --- 하드 종료 조건 계산 및 저장 ---
         levels = self.current_reward_level
@@ -1693,7 +1981,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     
     def _reset_idx(self, env_ids: torch.Tensor | None):
         global reset_flag 
-        
         if reset_flag:
             if training_mode == False:
                 reset_flag = False
@@ -1977,60 +2264,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         self.prev_box_pos_c[env_ids] = current_pos_c[:, 0:3].clone()
     
-    # def _get_observations(self) -> dict:
-    #     self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
-        
-    #     dof_pos_scaled = (
-    #         2.0
-    #         * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
-    #         / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
-    #         - 1.0
-    #     )
-        
-    #     # [1] 월드 기준 현재 위치 (Ground Truth)
-    #     box_pos_w_cur = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
-        
-    #     # [2] 카메라 기준 현재 위치 (Calculated)
-    #     camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
-    #     box_pos_c_cur, _ = self.world_to_camera_pose(
-    #         camera_pos_w, camera_rot_w,
-    #         box_pos_w_cur, 
-    #         self.box_grasp_rot
-    #     )
-    #     box_pos_c_cur = box_pos_c_cur[:, 0:3]
-
-    #     # [3] Observation 구성
-    #     # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
-    #     # print("box_pos_c_cur :", box_pos_c_cur)
-        
-    #     target_dist = 0.40
-    #     current_depth = box_pos_c_cur[:, 2]
-    #     z_error = (current_depth - target_dist).unsqueeze(-1)
-        
-    #     xy_offset = torch.norm(box_pos_c_cur[:, 0:2], p=2, dim=-1).unsqueeze(-1)
-        
-    #     obs = torch.cat(
-    #         (
-    #             dof_pos_scaled,                                             # 1. 로봇 관절
-    #             self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
-                
-    #             box_pos_c_cur,
-                
-    #             box_pos_w_cur,
-    #             self.prev_box_pos_w,
-                
-    #             z_error,
-    #             xy_offset,
-    #         ),
-    #         dim=-1,
-    #     )
-        
-    #     # [4] 다음 스텝을 위해 현재를 과거로 저장
-    #     self.prev_box_pos_w = box_pos_w_cur.clone()
-    #     self.prev_box_pos_c = box_pos_c_cur.clone()
-        
-    #     return {"policy": torch.clamp(obs, -5.0, 5.0),}
-    
     def _get_observations(self) -> dict:
         self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
         
@@ -2259,28 +2492,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             torch.pow(position_alignment_reward, position_align_reward_scale)
         )
         
-        # 최종 보상 조합 (하이브리드 구조)
-        # A. Task Reward (성공 조건들 - 곱하기)
-        # task_reward = (
-        #     torch.pow(distance_reward, distance_reward_scale) *
-        #     torch.pow(vector_alignment_reward, vector_align_reward_scale) *
-        #     torch.pow(position_alignment_reward, position_align_reward_scale) * 
-        #     torch.pow(pview_reward, pview_reward_scale)
-        # )
-        
-        # B. Blind Penalty (실패 비용 - 빼기)
+        # Blind Penalty (실패 비용 - 빼기)
         # 시야를 놓치면 레벨에 따라 감점 (-0.1 ~ -1.0)
         is_blind = self.is_pview_fail.float()
         blind_penalty = is_blind * (-blind_penalty_scale)
         
-        
-        
-        # C. 최종 합산
+        # 최종 합산
         # (잘했니?) + (다가갔니?) - (놓쳤니?)
         rewards = task_reward + approach_reward + blind_penalty + joint5_limit_penalty
         self.last_step_reward = rewards.detach()
         
         # print("*" * 50)
+        forces = self._contact_sensor.data.net_forces_w
+        # print("cotact_forces :", forces)
         # print("distance_reward :", distance_reward)
         # print("distance_error :", distance_error)
         # print("vector_alignment_reward :", vector_alignment_reward)
