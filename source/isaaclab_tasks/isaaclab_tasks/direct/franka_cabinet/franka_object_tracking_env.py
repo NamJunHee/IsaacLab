@@ -440,71 +440,6 @@ zone_keys = list(pose_candidate.keys())
 
 CSV_FILEPATH = "/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/IsaacLab/tracking_data.csv"
 
-def run_realtime_plotter(data_queue):
-    """
-    별도의 프로세스에서 실행되는 Matplotlib 시각화 루프
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    
-    # 그래프 초기화 (한 번만 실행)
-    fig, ax = plt.subplots(figsize=(6, 6))
-    grasp_line, = ax.plot([], [], color='red', linewidth=5, label='Grasp Width')
-    ax.scatter([0], [0], color='black', s=50, marker='+')
-    
-    # 텍스트 및 설정
-    info_text = ax.text(0.05, 0.95, '', transform=ax.transAxes, 
-                        verticalalignment='top', fontsize=12, 
-                        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    ax.set_title('Grasping Angle & Width (Async)')
-    ax.set_xlim(-0.10, 0.10)
-    ax.set_ylim(-0.10, 0.10)
-    ax.set_aspect('equal', adjustable='box')
-    ax.grid(True, linestyle=':', alpha=0.6)
-    
-    plt.show(block=False)
-    
-    # 무한 루프: 큐에서 데이터를 꺼내 그림
-    while True:
-        try:
-            # 1. 큐에서 데이터 가져오기 (0.1초 대기)
-            # 메인 프로세스가 종료 신호('STOP')를 보내면 루프 종료
-            data = data_queue.get(timeout=0.1)
-            
-            if data == "STOP":
-                print("[Plotter] 종료 신호를 받았습니다.")
-                break
-            
-            angle_deg, width_m = data
-            
-            # 2. 그리기 연산
-            theta = np.radians(angle_deg)
-            half_w = width_m / 2.0
-            
-            dx = half_w * np.cos(theta)
-            dy = half_w * np.sin(theta)
-            
-            p1_x, p1_y = -dx, -dy
-            p2_x, p2_y = dx, dy
-            
-            grasp_line.set_data([p1_x, p2_x], [p1_y, p2_y])
-            info_text.set_text(f"Angle: {angle_deg:.1f}°\nWidth: {width_m*100:.1f} cm")
-            
-            # 3. 화면 갱신
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-            
-        except queue.Empty:
-            # 큐가 비어있으면 그냥 계속 화면만 유지 (GUI 응답성 확보)
-            fig.canvas.flush_events()
-            continue
-        except Exception as e:
-            print(f"[Plotter Error] {e}")
-            break
-            
-    plt.close()
-
 @configclass
 class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## env
@@ -674,24 +609,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 writer.writerow(['grip_x', 'grip_y', 'grip_z', 
                                  'obj_x', 'obj_y', 'obj_z', 
                                  'cam_x', 'cam_y', 
-                                 'distance'])
-
-            # 2. [핵심] 그래프 데이터 저장용 딕셔너리 초기화 (이게 없어서 에러 발생함)
-            self.graph_data = {
-                "gripper_positions": [],
-                "object_positions": [],
-                "object_pos_in_cam": []
-            }
-
-            # 3. 멀티프로세싱 설정
-            self.plot_queue = Queue(maxsize=1) 
-            self.plot_process = Process(target=run_realtime_plotter, args=(self.plot_queue,))
-            self.plot_process.daemon = True 
-            self.plot_process.start()
-            
-            atexit.register(self.close)
-            
-            print("[Info] 실시간 시각화 프로세스가 시작되었습니다.")
+                                 'distance',
+                                 'grasp_angle', 'grasp_width'])
                 
         self.log_counter = 0
         self.LOG_INTERVAL = 6 
@@ -902,6 +821,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.last_action_filter = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.smoothing_alpha = 1.0
         
+        self.last_grasp_angle = 0.0
+        self.last_grasp_width = 0.0
+        
     def publish_camera_data(self):
         env_id = 0
         
@@ -1084,32 +1006,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.plot_queue.put_nowait((angle_deg, width_m))
         except queue.Full:
             pass # 큐가 찼으면 그냥 넘어감 (Drop frame)
-    
-    def close(self):
-        """환경 종료 시 호출되는 함수: 그래프 프로세스 정리"""
-        # 프로세스가 살아있다면
-        if hasattr(self, 'plot_process') and self.plot_process.is_alive():
-            print("[Info] 시각화 프로세스 종료 신호 전송 중...")
-            
-            try:
-                # 1. 큐에 "STOP" 메시지를 보내서 run_realtime_plotter 함수가 루프를 탈출하게 유도
-                self.plot_queue.put("STOP")
-                
-                # 2. 프로세스가 스스로 창을 닫고 꺼질 때까지 최대 3초 대기
-                self.plot_process.join(timeout=3.0)
-                
-            except Exception as e:
-                print(f"[Warning] 큐 전송 중 오류: {e}")
-
-            # 3. 3초 기다려도 안 꺼지면 그때 강제 종료 (최후의 수단)
-            if self.plot_process.is_alive():
-                print("[Info] 반응이 없어 시각화 프로세스를 강제 종료합니다.")
-                self.plot_process.terminate()
-                self.plot_process.join()
-            else:
-                print("[Info] 시각화 프로세스가 정상적으로 종료되었습니다.")
-            
-        super().close()
     
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.UF_robot)
@@ -1396,19 +1292,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         target_pos[:, joint6_index] = 0.0
         target_pos[:, 7:] = 0.0
         
-        if not training_mode and test_graph_mode:
-            rgb_data = self._camera.data.output["rgb"]
-            depth_data = self._camera.data.output["depth"]
+        # if not training_mode and test_graph_mode:
+        #     rgb_data = self._camera.data.output["rgb"]
+        #     depth_data = self._camera.data.output["depth"]
             
-            # 0번 환경에 대해서만 계산 수행
-            result = self.calculate_pca_grasping(rgb_data, depth_data, env_id=0)
+        #     # 0번 환경에 대해서만 계산 수행
+        #     result = self.calculate_pca_grasping(rgb_data, depth_data, env_id=0)
             
-            # 결과가 유효하면 클래스 변수에 저장 (시각화 함수에서 사용)
-            if result is not None and result[0] is not None:
-                angle, width, center = result
-                self.debug_grasp_info = {"angle": angle, "width": width}
-            else:
-                self.debug_grasp_info = None
+        #     # 결과가 유효하면 클래스 변수에 저장 (시각화 함수에서 사용)
+        #     if result is not None and result[0] is not None:
+        #         angle, width, center = result
+        #         self.debug_grasp_info = {"angle": angle, "width": width}
+        #     else:
+        #         self.debug_grasp_info = None
         
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
@@ -1462,18 +1358,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # 2. 결과가 유효한지(None이 아닌지) 확인합니다.
         if result is not None:
-            # 3. 유효하다면 언패킹합니다.
             gripper_angle, gripper_width, center = result
 
-            # 여기서 None 체크를 한 번 더 해주는 것이 안전합니다 (함수가 (None, None, None)을 리턴했을 수도 있음)
             if gripper_angle is not None:
                 print(f"Grasping Info -> Angle: {gripper_angle:.2f}, Width: {gripper_width:.4f}")
 
-                # [활용 예시] 로봇 제어에 활용하거나 로그 저장
-                # self.latest_grasp_angle = gripper_angle
+                # [!!! 핵심 수정 !!!] 계산된 값을 클래스 변수에 저장해야 CSV로 넘어갑니다.
+                self.debug_grasp_info = {
+                    "angle": gripper_angle,
+                    "width": gripper_width
+                }
+                
             else:
+                # 감지 실패 시 None 처리 (또는 이전 값 유지)
+                # self.debug_grasp_info = None 
                 print("물체 감지 실패 (조건 불만족)")
         else:
+            # self.debug_grasp_info = None
             print("물체 감지 실패 (함수 반환값 None)")
         
         # gripper_angle, gripper_width, _ = self.calculate_pca_grasping(rgb_data, depth_data)
@@ -1481,120 +1382,107 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
     def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
         """
-        RGB-D 이미지에서 PCA를 수행하여 물체의 파지 각도, 너비, 중심점을 계산합니다.
-        (수정됨: Depth 이미지 차원 처리 버그 수정)
+        개선된 로직:
+        1. Morphology 연산으로 마스크 구멍 메움 (모서리 잡는 현상 방지)
+        2. MinAreaRect로 정확한 물리적 너비 계산 (너비 과소 측정 방지)
+        3. Median Depth 사용 (깊이 노이즈 방지)
         """
         try:
-            # ---------------------------------------------------------
-            # 1. 데이터 전처리 (Tensor -> NumPy, Device -> Host)
-            # ---------------------------------------------------------
-            if isinstance(rgb_image, torch.Tensor):
-                rgb_image = rgb_image.cpu().numpy()
-            if isinstance(depth_image, torch.Tensor):
-                depth_image = depth_image.cpu().numpy()
+            # --- 1. 데이터 전처리 ---
+            if isinstance(rgb_image, torch.Tensor): rgb_image = rgb_image.cpu().numpy()
+            if isinstance(depth_image, torch.Tensor): depth_image = depth_image.cpu().numpy()
 
-            # [수정 핵심] 차원 축소 로직 개선
-            # RGB 처리: (N, H, W, C) -> (H, W, C)
-            if rgb_image.ndim == 4:
-                rgb_image = rgb_image[env_id]
+            if rgb_image.ndim == 4: rgb_image = rgb_image[env_id]
             
-            # Depth 처리: (N, H, W, 1) -> (H, W)
-            # 1단계: 배치 차원 선택
-            if depth_image.ndim == 4:
-                depth_image = depth_image[env_id] # 결과: (H, W, 1)
-            elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: 
-                # (N, H, W)인 경우 (드물지만 대비)
-                depth_image = depth_image[env_id] # 결과: (H, W)
+            # Depth 차원 정리
+            if depth_image.ndim == 4: depth_image = depth_image[env_id]
+            elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: depth_image = depth_image[env_id]
+            if depth_image.ndim == 3 and depth_image.shape[-1] == 1: depth_image = depth_image.squeeze(-1)
 
-            # 2단계: 채널 차원(1) 제거 -> 최종적으로 (H, W) 2차원이 되어야 함
-            if depth_image.ndim == 3 and depth_image.shape[-1] == 1:
-                depth_image = depth_image.squeeze(-1) # 결과: (H, W)
-            
-            # ---------------------------------------------------------
-            # 2. RGB 포맷 변환
-            # ---------------------------------------------------------
-            # RGBA(4채널) -> RGB(3채널)
-            if rgb_image.shape[-1] == 4:
-                rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
-            
-            # Float(0~1) -> Int(0~255)
+            # 포맷 변환
+            if rgb_image.shape[-1] == 4: rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
             if rgb_image.dtype != np.uint8:
-                if rgb_image.max() <= 1.1: 
-                    rgb_image = (rgb_image * 255).astype(np.uint8)
-                else:
-                    rgb_image = rgb_image.astype(np.uint8)
+                rgb_image = (rgb_image * 255).astype(np.uint8) if rgb_image.max() <= 1.1 else rgb_image.astype(np.uint8)
 
-            # ---------------------------------------------------------
-            # 3. 물체 영역 검출 (HSV 색상 기반)
-            # ---------------------------------------------------------
+            # --- 2. 물체 마스크 추출 ---
             hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
             
-            # [색상 설정 확인] 머스타드(노란색) vs 캔(빨간색)
-            # 현재 사용 중인 물체(Potted Meat Can)가 빨간색 계열이라면 아래 주석을 풀어주세요.
-            # lower_color = np.array([0, 100, 100]); upper_color = np.array([10, 255, 255]) 
-            
-            # 머스타드 병 (기본)
-            lower_color = np.array([20, 100, 100])
-            upper_color = np.array([35, 255, 255])
-            
+            # [색상 범위] (물체에 맞춰 조정 필요)
+            # 캔(Potted Meat)의 경우 붉은색 계열이므로 두 범위 합쳐야 할 수 있음
+            # 머스타드(노란색) 예시:
+            lower_color = np.array([20, 100, 100]); upper_color = np.array([35, 255, 255])
             mask = cv2.inRange(hsv, lower_color, upper_color)
-            
-            kernel = np.ones((3, 3), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            
-            # ---------------------------------------------------------
-            # 4. 윤곽선 및 PCA
-            # ---------------------------------------------------------
+
+            # [핵심 1] 구멍 메우기 (Morphology Close)
+            # 물체 내부의 Depth 결측으로 인해 구멍이 뚫리면 PCA가 모서리를 잡습니다.
+            # 커널 크기를 키워서(5x5 -> 7x7) 확실하게 메워줍니다.
+            kernel = np.ones((7, 7), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel) 
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel) # 노이즈 제거
+
+            # --- 3. 윤곽선 검출 ---
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours: return None
             
-            if not contours:
-                return None, None, None 
-
             max_contour = max(contours, key=cv2.contourArea)
-            
-            if cv2.contourArea(max_contour) < 100:
-                return None, None, None
+            if cv2.contourArea(max_contour) < 100: return None
 
+            # --- 4. PCA (각도 계산용) ---
             pts = max_contour.reshape(-1, 2).astype(np.float64)
-            mean, eigenvectors, eigenvalues = cv2.PCACompute2(pts, mean=np.array([]))
-            
+            mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
             cx, cy = int(mean[0][0]), int(mean[0][1])
             center = (cx, cy)
 
+            # 각도는 PCA가 안정적임
             major_axis = eigenvectors[0]
             angle_rad = np.arctan2(major_axis[1], major_axis[0])
             grasp_angle_deg = np.degrees(angle_rad)
-            
+
+            # --- 5. MinAreaRect (너비 계산용) ---
+            # [핵심 2] PCA 분산 대신 '최소 외접 직사각형' 사용
             rect = cv2.minAreaRect(max_contour)
             (rect_center, (w, h), rect_angle) = rect
-            pixel_width = min(w, h)
             
-            # ---------------------------------------------------------
-            # 5. 실제 물리 거리 변환 (Depth 활용)
-            # ---------------------------------------------------------
-            # 이제 depth_image는 확실히 (H, W) 형태이므로 안전하게 접근 가능
-            if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
-                d_val = depth_image[cy, cx]
-            else:
-                d_val = 0.0 # 범위 벗어남
-            
-            if np.isinf(d_val) or np.isnan(d_val) or d_val <= 0:
-                d_val = 0.4 
+            # 물체의 '짧은 변'이 우리가 잡아야 할 너비입니다.
+            pixel_width = min(w, h) 
 
-            # 카메라 Intrinsic 사용
+            # --- 6. 실제 거리(Depth) 계산 ---
+            # [핵심 3] 중심점 하나만 믿지 말고, 마스크 영역 내의 깊이값 중 중앙값(Median) 사용
+            # 이렇게 하면 중심점 Depth가 0이어도 주변 값을 참조하여 정확해집니다.
+            
+            # 마스크 영역 내의 유효한 Depth 값만 추출
+            valid_depths = depth_image[(mask > 0) & (depth_image > 0)]
+            
+            if len(valid_depths) > 10:
+                d_val = np.median(valid_depths)
+            else:
+                # 마스크 내 유효값이 없으면 중심점 사용 (예외 처리)
+                if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
+                    d_val = depth_image[cy, cx]
+                else:
+                    d_val = 0.0
+
+            if d_val <= 0 or np.isnan(d_val): d_val = 0.4 # 기본값
+
+            # --- 7. 픽셀 -> 미터 변환 ---
             intrinsics = self._camera.data.intrinsic_matrices[env_id]
             fx = intrinsics[0, 0].item()
             
+            # 공식: 실제_너비 = 깊이 * (픽셀_너비 / 초점거리)
             real_width_m = d_val * (pixel_width / fx)
-            real_width_m = np.clip(real_width_m, 0.0, 0.15) 
+            
+            # 안전장치: 너무 크거나 작으면 클램핑
+            # real_width_m = np.clip(real_width_m, 0.0, 0.15) 
+            
+            # 디버깅용 출력 (필요시 주석 해제)
+            # print(f"Pixel W: {pixel_width:.1f}, Depth: {d_val:.3f}, Real W: {real_width_m:.4f}")
 
             return grasp_angle_deg, real_width_m, center
 
         except Exception as e:
-            # 에러 발생 시 로그 출력 (디버깅용)
-            # print(f"[PCA Error] {e}") 
-            return None, None, None
-        
+            # print(f"[PCA Error] {e}")
+            return None
+            
     # post-physics step calls
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         if hasattr(self, 'is_pview_fail'):
@@ -1641,21 +1529,33 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             camera_real_dist = torch.norm(self.box_pos_cam[0], p=2, dim=-1).item()
             distance_val = camera_real_dist
 
+            # with open(self.csv_filepath, 'a', newline='') as f:
+            #     writer = csv.writer(f)
+            #     writer.writerow([gripper_pos[0], gripper_pos[1], gripper_pos[2],
+            #                      object_pos[0], object_pos[1], object_pos[2],
+            #                      cam_pos[0], cam_pos[1],
+            #                     distance_val])
+            #     f.flush() 
+            #     os.fsync(f.fileno()) 
+            
+            if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
+                self.last_grasp_angle = self.debug_grasp_info["angle"]
+                self.last_grasp_width = self.debug_grasp_info["width"]
+            
+            # CSV에는 항상 self.last_... 값을 기록
+            save_angle = self.last_grasp_angle
+            save_width = self.last_grasp_width
+
             with open(self.csv_filepath, 'a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([gripper_pos[0], gripper_pos[1], gripper_pos[2],
                                  object_pos[0], object_pos[1], object_pos[2],
                                  cam_pos[0], cam_pos[1],
-                                distance_val])
+                                 distance_val,
+                                 save_angle, save_width]) # 저장
                 f.flush() 
-                os.fsync(f.fileno()) 
+                os.fsync(f.fileno())
             
-            self.graph_data["gripper_positions"].append(gripper_pos)
-            self.graph_data["object_positions"].append(object_pos)
-            self.graph_data["object_pos_in_cam"].append(cam_pos)
-            
-            # 2. 그래프 업데이트 함수 호출 (화면 갱신)
-            self._update_realtime_plots()
         
         # --- 하드 종료 조건 계산 및 저장 ---
         levels = self.current_reward_level
@@ -2263,6 +2163,60 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_rot[env_ids]
         )
         self.prev_box_pos_c[env_ids] = current_pos_c[:, 0:3].clone()
+    
+    # def _get_observations(self) -> dict:
+    #     self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
+        
+    #     dof_pos_scaled = (
+    #         2.0
+    #         * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
+    #         / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
+    #         - 1.0
+    #     )
+        
+    #     # [1] 월드 기준 현재 위치 (Ground Truth)
+    #     box_pos_w_cur = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
+        
+    #     # [2] 카메라 기준 현재 위치 (Calculated)
+    #     camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+    #     box_pos_c_cur, _ = self.world_to_camera_pose(
+    #         camera_pos_w, camera_rot_w,
+    #         box_pos_w_cur, 
+    #         self.box_grasp_rot
+    #     )
+    #     box_pos_c_cur = box_pos_c_cur[:, 0:3]
+
+    #     # [3] Observation 구성
+    #     # 로봇(2) + 카메라(현재/과거) + 월드(현재/과거)
+    #     # print("box_pos_c_cur :", box_pos_c_cur)
+        
+    #     target_dist = 0.40
+    #     current_depth = box_pos_c_cur[:, 2]
+    #     z_error = (current_depth - target_dist).unsqueeze(-1)
+        
+    #     xy_offset = torch.norm(box_pos_c_cur[:, 0:2], p=2, dim=-1).unsqueeze(-1)
+        
+    #     obs = torch.cat(
+    #         (
+    #             dof_pos_scaled,                                             # 1. 로봇 관절
+    #             self._robot.data.joint_vel * self.cfg.dof_velocity_scale,   # 2. 로봇 속도
+                
+    #             box_pos_c_cur,
+                
+    #             box_pos_w_cur,
+    #             self.prev_box_pos_w,
+                
+    #             z_error,
+    #             xy_offset,
+    #         ),
+    #         dim=-1,
+    #     )
+        
+    #     # [4] 다음 스텝을 위해 현재를 과거로 저장
+    #     self.prev_box_pos_w = box_pos_w_cur.clone()
+    #     self.prev_box_pos_c = box_pos_c_cur.clone()
+        
+    #     return {"policy": torch.clamp(obs, -5.0, 5.0),}
     
     def _get_observations(self) -> dict:
         self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
