@@ -171,7 +171,7 @@ def main():
                 fig2.canvas.flush_events()
             
             # ------------------------------------------------------------------
-            # Update Distance Plot - [기존 유지]
+            # Update Distance Plot - [수정] 0부터 누적 표시
             # ------------------------------------------------------------------
             if 'distance' in data.columns:
                 dist_data = data['distance'].values
@@ -181,11 +181,9 @@ def main():
                 dist_std = np.std(dist_data)
 
                 distance_line.set_data(steps, dist_data)
-                # 데이터가 많아지면 최근 데이터 위주로 스크롤 (옵션)
-                if len(dist_data) > 500:
-                     ax3.set_xlim(len(dist_data) - 500, len(dist_data) + 10)
-                else:
-                     ax3.set_xlim(0, len(dist_data) + 10)
+                
+                # [수정] 스크롤링 제거 -> 항상 0부터 현재 데이터 길이까지 표시
+                ax3.set_xlim(0, len(dist_data) + 10)
                 
                 ax3.set_title(f'Distance to Object\nMean: {dist_mean*100:.2f}cm, Std: {dist_std*100:.2f}cm')
 
