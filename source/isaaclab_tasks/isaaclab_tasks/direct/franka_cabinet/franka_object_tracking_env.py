@@ -78,7 +78,7 @@ object_move = ObjectMoveType.LINEAR
 
 training_mode = False
 
-approach_mode = False
+approach_mode = True
 grasp_mode = False
 
 camera_enable = True
@@ -738,6 +738,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         stage = get_current_stage()
         
         self.hand_link_idx = self._robot.find_bodies("link6")[0][0]
+        self.camera_link_idx = self._robot.find_bodies("link5")[0][0]
         self.box_idx = self._box.find_bodies("base_link")[0][0]
         
         hand_pose = get_env_local_pose(
@@ -1131,7 +1132,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # 2. 손목 회전 제어 (Phase 1 이상)
             align_mask = (self.grasp_phase < 2) 
             if torch.any(align_mask):
-                self.robot_dof_targets[align_mask, 6] = self.target_grasp_angle[align_mask]
+                self.robot_dof_targets[align_mask, 5] = self.target_grasp_angle[align_mask]
 
             # 3. 그리퍼 너비 제어
             if hasattr(self, 'gripper_drive_idx'):
@@ -1277,7 +1278,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             non_grasping_mask = (self.grasp_phase == 0)
             if torch.any(non_grasping_mask):
                 target_pos[non_grasping_mask, joint6_index] = 0.0
-                target_pos[non_grasping_mask, gripper_joint_idex] =0.0
+                # target_pos[non_grasping_mask, gripper_joint_idex] =0.0
         else:
             target_pos[:, joint6_index] = 0.0
             target_pos[:, gripper_joint_idex] = 0.0
@@ -1382,6 +1383,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             if cv2.contourArea(max_contour) < 100: return None
 
             # --- 4. PCA (각도 계산용) ---
+            # pts = max_contour.reshape(-1, 2).astype(np.float64)
+            # mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
+            # cx, cy = int(mean[0][0]), int(mean[0][1])
+            # center = (cx, cy)
+
+            # # 각도는 PCA가 안정적임
+            # major_axis = eigenvectors[0]
+            # angle_rad = np.arctan2(major_axis[1], major_axis[0])
+            # grasp_angle_deg = np.degrees(angle_rad)
+            
             pts = max_contour.reshape(-1, 2).astype(np.float64)
             mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
             cx, cy = int(mean[0][0]), int(mean[0][1])
@@ -1391,6 +1402,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             major_axis = eigenvectors[0]
             angle_rad = np.arctan2(major_axis[1], major_axis[0])
             grasp_angle_deg = np.degrees(angle_rad)
+            
+            # [수정] 긴 쪽(Major Axis)이 아니라 짧은 쪽(Width)을 잡기 위해 90도 회전 추가
+            grasp_angle_deg += 90.0 
+
+            # [보정] 그리퍼는 대칭이므로 각도를 -90도 ~ +90도 사이로 유지 (불필요한 회전 방지)
+            while grasp_angle_deg > 90.0:
+                grasp_angle_deg -= 180.0
+            while grasp_angle_deg < -90.0:
+                grasp_angle_deg += 180.0
 
             # --- 5. MinAreaRect (너비 계산용) ---
             # [핵심 2] PCA 분산 대신 '최소 외접 직사각형' 사용
@@ -1469,15 +1489,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             
             camera_real_dist = torch.norm(self.box_pos_cam[0], p=2, dim=-1).item()
             distance_val = camera_real_dist
-
-            # with open(self.csv_filepath, 'a', newline='') as f:
-            #     writer = csv.writer(f)
-            #     writer.writerow([gripper_pos[0], gripper_pos[1], gripper_pos[2],
-            #                      object_pos[0], object_pos[1], object_pos[2],
-            #                      cam_pos[0], cam_pos[1],
-            #                     distance_val])
-            #     f.flush() 
-            #     os.fsync(f.fileno()) 
             
             if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
                 self.last_grasp_angle = self.debug_grasp_info["angle"]
@@ -2129,24 +2140,17 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos_w_real = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
         
         # [2] 카메라 월드 위치 계산
-        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+        # camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.link5_pos, self.hand_rot)
         
         if not training_mode:
             approach_mask = (self.grasp_phase == 1) # 접근 단계
             
             if torch.any(approach_mask):
-                base_offset = camera_pos_w - self.robot_grasp_pos # (N, 3)
-                forward_local = torch.tensor([0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1)
-                gripper_forward_w = tf_vector(self.robot_grasp_rot, forward_local)
-                
-                depth_bias = 0.07
-                final_offset = base_offset + (gripper_forward_w * depth_bias)
-                
-                box_pos_w_target = box_pos_w_real + final_offset
-                
+                offset_vec = camera_pos_w - self.robot_grasp_pos
                 final_box_pos_w = box_pos_w_real.clone()
-                final_box_pos_w[approach_mask] = box_pos_w_target[approach_mask]
-            
+                final_box_pos_w[approach_mask] = box_pos_w_real[approach_mask] + offset_vec[approach_mask]
+                
             else:
                 final_box_pos_w = box_pos_w_real
         else:
@@ -2161,30 +2165,123 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos_c_cur = box_pos_c_cur[:, 0:3]
         
         obs_box_pos = box_pos_c_cur
+        
+        # if not training_mode:
+        #     self.dist_offset = 0.15
+        #     # RL에게 "너 실제보다 self.dist_offset 만큼 가까이 있어!"라고 속입니다.
+        #     # 결과: RL은 거리를 벌리기 위해 로봇을 뒤로 뺍니다.
+        #     obs_box_pos[:, 2] -= self.dist_offset
 
         # [4] 목표 거리 설정
+        # tracking_distance = 0.40
+        # approach_distance = 0.05
+        
+        # if training_mode:
+        #     target_dist = torch.tensor(tracking_distance, device=self.device)
+        # else:
+        #     approach_mask = (self.grasp_phase == 1)
+        #     # 접근 시 목표 거리 (그리퍼 기준 4~5cm)
+        #     target_dist = torch.where(
+        #         approach_mask, 
+        #         torch.tensor(approach_distance, device=self.device), 
+        #         torch.tensor(tracking_distance, device=self.device)
+        #     )
+
+        # # [5] 최종 관측값 조립
+        # current_depth = obs_box_pos[:, 2] # (N,)
+        # z_error = (current_depth - target_dist).unsqueeze(-1)
+        # xy_offset = torch.norm(obs_box_pos[:, 0:2], p=2, dim=-1).unsqueeze(-1)
+        
+        # obs = torch.cat(
+        #     (
+        #         dof_pos_scaled[:, :6], 
+        #         (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)[:, :6],
+                
+        #         obs_box_pos, 
+                
+        #         box_pos_w_real, # 기록용은 실제 위치 유지
+        #         self.prev_box_pos_w,
+                
+        #         z_error,
+        #         xy_offset,
+        #     ),
+        #     dim=-1,
+        # )
+        
+        # [4] 목표 위치(Distance & Offset) 설정
+        tracking_distance = 0.40
+        approach_distance = 0.05
+        
+        # ### [추가됨] 그리퍼와 카메라 간의 오프셋 설정 (Eye-in-Hand 기준) ###
+        # 예: 그리퍼가 카메라 중심보다 Y축으로 5cm 아래에 있다면 0.05 (좌표계 확인 필요)
+        # X축은 보통 정렬되어 있으므로 0, 필요시 수정
+        gripper_offset_y = 0.05 
+        gripper_offset_x = 0.0
+        
+        # 현재 물체의 위치 분해
+        current_x = obs_box_pos[:, 0]
+        current_y = obs_box_pos[:, 1]
+        current_depth = obs_box_pos[:, 2]
+
         if training_mode:
-            target_dist = torch.tensor(0.40, device=self.device)
+            # 학습 중에는 보통 중앙(0,0), 거리(tracking_dist)를 목표로 함
+            target_dist = torch.tensor(tracking_distance, device=self.device)
+            target_x = torch.zeros_like(current_x)
+            target_y = torch.zeros_like(current_y)
         else:
             approach_mask = (self.grasp_phase == 1)
-            # 접근 시 목표 거리 (그리퍼 기준 4~5cm)
+            
+            # 1. Z축 (거리) 목표 설정
             target_dist = torch.where(
                 approach_mask, 
-                torch.tensor(0.04, device=self.device), 
-                torch.tensor(0.40, device=self.device)
+                torch.tensor(approach_distance, device=self.device), 
+                torch.tensor(tracking_distance, device=self.device)
             )
 
-        # [5] 최종 관측값 조립
-        current_depth = obs_box_pos[:, 2] # (N,)
-        z_error = (current_depth - target_dist).unsqueeze(-1)
-        xy_offset = torch.norm(obs_box_pos[:, 0:2], p=2, dim=-1).unsqueeze(-1)
+            # 2. ### [수정됨] XY축 (센터링) 목표 설정 ###
+            # 접근 모드일 때: 목표는 (0,0)이 아니라 (gripper_offset_x, gripper_offset_y)가 됨
+            # 이렇게 하면 로봇은 물체가 해당 오프셋 위치에 있을 때 '에러가 0'이라고 인식함
+            target_x = torch.where(
+                approach_mask,
+                torch.tensor(gripper_offset_x, device=self.device),
+                torch.tensor(0.0, device=self.device) # 추적 모드는 카메라 중앙
+            )
+            
+            target_y = torch.where(
+                approach_mask,
+                torch.tensor(gripper_offset_y, device=self.device),
+                torch.tensor(0.0, device=self.device) # 추적 모드는 카메라 중앙
+            )
+
+        # [5] 최종 관측값 조립을 위한 에러 계산
         
+        # ### [수정됨] 정책(Policy)에 들어갈 위치 정보 재가공 ###
+        # 단순히 절대 위치(obs_box_pos)를 넣으면 정책은 무조건 (0,0)으로 가려고 함.
+        # 따라서 (현재위치 - 목표위치)를 계산하여, 목표 위치에 도달했을 때 입력값이 (0,0)이 되도록 속임.
+        error_x = current_x - target_x
+        error_y = current_y - target_y
+        
+        # Z축 에러는 기존 로직 유지
+        z_error = (current_depth - target_dist).unsqueeze(-1)
+        
+        # XY Offset (노름)도 에러 기준으로 계산해야 정확함 (선택사항이나 추천)
+        # 기존: xy_offset = torch.norm(obs_box_pos[:, 0:2], p=2, dim=-1).unsqueeze(-1)
+        # 수정: 목표점으로부터 얼마나 벗어났는지를 계산
+        xy_error_vec = torch.stack([error_x, error_y], dim=-1)
+        xy_offset = torch.norm(xy_error_vec, p=2, dim=-1).unsqueeze(-1)
+
+        # 정책에 들어갈 '가상 위치' (XY는 에러값, Z는 절대값 유지하는 것이 일반적이나, 
+        # 정책이 XYZ 전체를 0으로 맞추게 학습되었다면 Z도 error를 넣어야 함. 
+        # 여기서는 기존 코드 스타일(obs_box_pos 유지)을 존중하되 XY만 속임)
+        
+        obs_pos_input = torch.stack([error_x, error_y, current_depth], dim=-1)
+
         obs = torch.cat(
             (
                 dof_pos_scaled[:, :6], 
                 (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)[:, :6],
                 
-                obs_box_pos, 
+                obs_pos_input, # ### [수정됨] obs_box_pos 대신, 목표 오프셋이 반영된 값을 넣음
                 
                 box_pos_w_real, # 기록용은 실제 위치 유지
                 self.prev_box_pos_w,
@@ -2194,6 +2291,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             ),
             dim=-1,
         )
+        
         
         self.prev_box_pos_w = box_pos_w_real.clone()
         self.prev_box_pos_c = box_pos_c_cur.clone()
@@ -2211,6 +2309,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self.hand_pos[env_ids] = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
         self.hand_rot[env_ids] = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
+        
+        self.link5_pos = self._robot.data.body_link_pos_w[env_ids, self.camera_link_idx]
+        self.link5_rot = self._robot.data.body_link_quat_w[env_ids, self.camera_link_idx]
         
         box_pos_world = self._box.data.body_link_pos_w[env_ids, self.box_idx]
         box_rot_world = self._box.data.body_link_quat_w[env_ids, self.box_idx]
@@ -2271,6 +2372,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         ## R1: 거리 유지 보상 (Distance Reward) - [카메라 기준 수정]
         target_distance = 0.40
+        # target_distance = 0.55
         camera_real_distance = torch.norm(box_pos_cam, dim=-1)
         distance_error = camera_real_distance - target_distance
         
@@ -2281,10 +2383,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             torch.abs(distance_error) * 1.0   # 멀면 그냥 원래대로
         )
         
-        distance_reward = torch.exp(-ALPHA_DIST * weighted_error)
-                
-        self.avg_distance_error_buf += distance_error
-        # self.episode_steps_buf += 1.0 # 매 스텝 1씩 증가
+        distance_reward = torch.exp(-ALPHA_DIST * weighted_error)  
+        self.avg_distance_error_buf += torch.abs(distance_error)
 
         ## R2: 각도 정렬 보상 (Vector Alignment Reward)
         box_pos_local = box_pos_w - self.scene.env_origins
