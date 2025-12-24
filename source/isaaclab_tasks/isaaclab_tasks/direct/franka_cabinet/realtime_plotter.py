@@ -15,12 +15,12 @@ GRAPH_RANGE = 0.4         # 그래프 표시 범위 (m)
 PVIEW_MARGIN_RADIUS = 0.15 
 
 # Env 파일의 Target Distance에 맞춤
-DISTANCE_TARGET = 0.40 
+DISTANCE_TARGET = 0.35
 DISTANCE_TOLERANCE = 0.05 
 
 # 사용자가 요청한 거리 범위 가이드라인
-DISTANCE_GUIDE_MIN = 0.35
-DISTANCE_GUIDE_MAX = 0.45
+DISTANCE_GUIDE_MIN = 0.30
+DISTANCE_GUIDE_MAX = 0.40
 
 def main():
     """CSV 파일을 읽어 파지 정보, 카메라 뷰, 거리를 실시간으로 시각화합니다."""
