@@ -1193,7 +1193,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     angle_error = torch.where(torch.abs(angle_error) < DEADZONE, torch.tensor(0.0, device=self.device), angle_error)
                     
                     # B. 속도 제한 (Clamp): 한 번에 1.1도(0.02rad) 이상 움직이지 마라 -> "급발진 방지"
-                    MAX_STEP = 0.06 
+                    MAX_STEP = 0.20
                     angle_error_clamped = torch.clamp(angle_error, -MAX_STEP, MAX_STEP)
                     
                     # C. 최종 목표 = 현재 위치 + 제한된 오차
