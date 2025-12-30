@@ -106,122 +106,6 @@ rand_pos_range = {
     # "z" : (  0.65, 0.65),
 }
 
-# reward_curriculum_levels = [
-#     # Level 0: (Static) - 기초 단계
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 1.0 -> 6.0 (접근이 깡패다)
-#             "pview": 0.5,         # [하향] 1.0 -> 0.5 (시야는 Gating용)
-#             "vector_align": 0.5,  # 0.6 -> 0.5
-#             "position_align": 0.5,# 0.8 -> 0.5
-#             "joint_penalty": 1.0, # [유지] 손목 보호를 위해 1.0 유지
-#             "blind_penalty": 1.0  # [상향] 0.1 -> 1.0 (놓치면 점수 다 뱉어내라)
-#         },
-#         "success_multiplier": 1.2, "failure_multiplier": 0.8, 
-#         "y_range" : ( -0.50, 0.50),
-
-#         "distance_margin" : 0.15,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 1: (Moving Slow) - 추적 시작
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 공격적 접근 유도
-#             "pview": 0.5,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0, # [유지]
-#             "blind_penalty": 1.0  # [상향]
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range" : ( -0.50, 0.50),
-
-#         "distance_margin" : 0.15, 
-#         "vector_align_margin" : math.radians(25.0),
-#         "position_align_margin" : 0.25,
-#         "pview_margin" : 0.25,
-#         "fail_margin" : 0.35,
-#     },
-#     # Level 2: (Moving Planar) - 여기가 고비였던 구간
-#     {
-#         "reward_scales": {
-#             "distance": 6.0,      # [핵심] 멀어지는 물체 쫓아가려면 보상이 커야 함
-#             "pview": 0.5,
-#             "vector_align": 0.5,
-#             "position_align": 0.5,
-#             "joint_penalty": 1.0, # [유지]
-#             "blind_penalty": 1.0  # [상향]
-#         },
-#         "success_multiplier": 0.9, "failure_multiplier": 1.0, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(20.0),
-#         "position_align_margin" : 0.20,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 3: (Moving Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.0 
-#         },
-#         "success_multiplier": 0.8, "failure_multiplier": 1.0, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.10,
-#         "vector_align_margin" : math.radians(15.0),
-#         "position_align_margin" : 0.15,
-#         "pview_margin" : 0.20,
-#         "fail_margin" : 0.30
-#     },
-#     # Level 4: (Moving Very Fast)
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.5 # [최상위] 더 엄격하게
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.05,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.25,
-#     },
-#     {
-#         "reward_scales": {
-#             "distance": 6.0, 
-#             "pview": 0.5, 
-#             "vector_align": 0.5, 
-#             "position_align": 0.5, 
-#             "joint_penalty": 1.0, 
-#             "blind_penalty": 1.5 # [최상위] 더 엄격하게
-#         },
-#         "success_multiplier": 1.0, "failure_multiplier": 1.2, 
-#         "y_range": (-0.50, 0.50),
-
-#         "distance_margin" : 0.05,
-#         "vector_align_margin" : math.radians(10.0),
-#         "position_align_margin" : 0.10,
-#         "pview_margin" : 0.15,
-#         "fail_margin" : 0.25,
-#     },
-# ]
-
 reward_curriculum_levels = [
     # Level 0: (Static) - 기초 단계
     # 목표: 일단 물체 근처에 머무는 법을 익힘
@@ -658,11 +542,18 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 damping = 100.0,
             ),
             "ufactory_forearm": ImplicitActuatorCfg(
-                joint_names_expr=["joint4", "joint5", "joint6"],
+                joint_names_expr=["joint4", "joint5"],
                 effort_limit = 87.0,
                 velocity_limit = 3.5,
                 stiffness = 2000.0,
                 damping = 100.0,
+            ),
+            "ufactory_wrist": ImplicitActuatorCfg(
+                joint_names_expr=["joint6"],
+                effort_limit = 87.0,
+                velocity_limit = 5.0, # 회전 속도 한계 품
+                stiffness = 400.0,    # [핵심] 2000 -> 500 (유연하게 만듦)
+                damping = 40.0,       # 댐핑 조절
             ),
             "ufactory_hand": ImplicitActuatorCfg(
                 # xArm6 그리퍼의 메인 관절 이름이 "drive_joint" 입니다.
@@ -702,8 +593,10 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
                 # pos=(0.07, 0.03, 0.055), # 위/아래, 좌/우, 앞/뒤
                 # rot=(0.7071, 0.0, 0.0, 0.7071),
                 
-                pos=(0.2, 0.03, 0.00), # 위/아래, 좌/우, 앞/뒤
-                rot=(0.5, -0.5, 0.5, 0.5),
+                # pos=(0.2, 0.03, 0.0), # 위/아래, 좌/우, 앞/뒤
+                pos=(0.25, 0.1, -0.03), # 위/아래, 좌/우, 앞/뒤
+                # rot=(0.5, -0.5, 0.5, 0.5),
+                rot=(0.3536, -0.6124, 0.3536, 0.6124),
             )
         )
             
@@ -779,8 +672,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.curriculum_factor_k_c = torch.full((self.num_envs, 1), self.curriculum_factor_k0, device=self.device)
         
         # 에피소드 성공 판단 기준
-        self.EVAL_BATCH_SIZE = 10     # 20판마다 성적 평가
-        self.PROMOTION_RATE = 0.80     # 승률 90% 이상이면 레벨업 (20판 중 18승)
+        self.EVAL_BATCH_SIZE = 15     # 20판마다 성적 평가
+        self.PROMOTION_RATE = 0.85     # 승률 90% 이상이면 레벨업 (20판 중 18승)
         self.DEMOTION_RATE = 0.10      # 승률 40% 이하면 레벨다운 (20판 중 8승 이하)
 
         # 세부 성공 조건
@@ -978,13 +871,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.prev_box_pos_c = torch.zeros((self.num_envs, 3), device=self.device)
         
         self.last_action_filter = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
-        self.smoothing_alpha = 1.0
+        self.smoothing_alpha = 0.15
         
         self.last_grasp_angle = 0.0
         self.last_grasp_width = 0.0
-        
 
         self.gripper_drive_idx = self._robot.find_joints(".*drive_joint")[0][0]
+        self.joint4_index = self._robot.find_joints(["joint4"])[0]
+        self.joint6_index = self._robot.find_joints(["joint6"])[0]
 
         # 파지 실험용 상태 머신 변수 초기화
         # 0: Tracking (추적), 1: Approach (접근), 2: Grasping (파지), 3: Success (성공)
@@ -1078,8 +972,9 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # cam_offset_pos = torch.tensor([0.07, 0.03, -0.13], device=hand_pos.device).repeat(batch_size, 1)
         # q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=hand_pos.device).repeat(batch_size, 1)
         
-        cam_offset_pos = torch.tensor([0.2, 0.03, 0.00], device=hand_pos.device).repeat(self.num_envs, 1)
-        q_cam_in_hand = torch.tensor([0.5, -0.5, 0.5, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
+        cam_offset_pos = torch.tensor([0.25, 0.1, -0.03], device=hand_pos.device).repeat(self.num_envs, 1)
+        # q_cam_in_hand = torch.tensor([0.5, -0.5, 0.5, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
+        q_cam_in_hand = torch.tensor([0.3536, -0.6124, 0.3536, 0.6124], device=hand_pos.device).repeat(self.num_envs, 1)
 
         camera_rot_w, camera_pos_w_abs = tf_combine(
             hand_rot,
@@ -1199,7 +1094,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         
         # ======================================================================
-        # CASE 1: 학습 모드 (Training Mode)
+        # CASE 1: 학습 모드 (Training Mode) - 기존 동일
         # ======================================================================
         if training_mode:
             current_action_scale = self.action_scale_tensor.unsqueeze(-1)
@@ -1216,10 +1111,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self.robot_dof_targets[:, g_idx] = self.robot_dof_upper_limits[g_idx]
 
         # ======================================================================
-        # CASE 2: 테스트 모드 (Test Mode)
+        # CASE 2: 테스트 모드 (Test Mode) - [수정]
         # ======================================================================
         else:            
-            # [A] 거리 및 벡터 오차 계산
+            # [A] 거리 및 벡터 오차 계산 (기존 유지)
             dist_cam_to_obj = torch.norm(self.box_pos_cam[:, :3], p=2, dim=-1)
             xy_error_cam = torch.norm(self.box_pos_cam[:, :2], p=2, dim=-1)
 
@@ -1233,30 +1128,100 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
             # [B] 상태 머신 (Phase Transition)
             
-            # Phase 0: Tracking
+            # # Phase 0: Tracking (추적 + 각도 정렬)
+            # track_mask = (self.grasp_phase == 0)
+            
+            # # [추가] 각도가 정렬되었는지 확인하는 플래그
+            # is_angle_aligned = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
+            # if torch.any(track_mask):
+            #     if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
+            #         # [1] PCA 목표 각도 가져오기 (절대 각도)
+            #         pca_angle_deg = self.debug_grasp_info["angle"]
+            #         pca_width_m = self.debug_grasp_info["width"]
+            #         pca_rad = math.radians(pca_angle_deg)
+                    
+            #         # [2] 현재 로봇 손목 각도
+            #         current_j6 = self._robot.data.joint_pos[track_mask, 5]
+                    
+            #         # [3] 핵심 수정: 무한 회전 방지 로직
+            #         # 목표는 "현재 각도에서 가장 가까운 PCA 각도(180도 대칭 고려)"로 설정해야 함
+                    
+            #         # 오차 계산 (PCA - 현재)
+            #         angle_error = pca_rad - current_j6
+                    
+            #         # 180도 대칭성(Modulus) 적용: 오차를 -90도 ~ +90도 사이로 강제 변환
+            #         # 예: 오차가 170도면 -> -10도로 변환 (반대로 10도만 돌면 되니까)
+            #         angle_error = (angle_error + (torch.pi / 2)) % torch.pi - (torch.pi / 2)
+                    
+            #         # 최종 목표 = 현재 위치 + 보정된 오차
+            #         # 이렇게 하면 절대 계속 돌지 않고 딱 필요한 만큼만 움직임
+            #         self.target_grasp_angle[track_mask] = current_j6 + angle_error
+                    
+            #         self.target_grasp_width[track_mask] = max(0.0, pca_width_m - 0.01)
+                    
+            #         # [4] 정렬 완료 판단 (오차가 10도 이내면 OK)
+            #         if abs(math.degrees(angle_error.mean().item())) < 10.0:
+            #             is_angle_aligned[track_mask] = True
+            
+            # Phase 0: Tracking (추적 + 각도 정렬)
             track_mask = (self.grasp_phase == 0)
+            
+            # [추가] 각도가 정렬되었는지 확인하는 플래그
+            is_angle_aligned = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
             if torch.any(track_mask):
                 if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
+                    # [1] PCA 목표 각도 가져오기
                     pca_angle_deg = self.debug_grasp_info["angle"]
                     pca_width_m = self.debug_grasp_info["width"]
+                    pca_rad = math.radians(pca_angle_deg)
+                    
+                    # [2] 현재 로봇 손목 각도
                     current_j6 = self._robot.data.joint_pos[track_mask, 5]
                     
-                    self.target_grasp_angle[track_mask] = current_j6 + math.radians(pca_angle_deg)
+                    # [3] 오차 계산 (최단 경로)
+                    angle_error = pca_rad - current_j6
+                    angle_error = (angle_error + (torch.pi / 2)) % torch.pi - (torch.pi / 2)
+                    
+                    # ----------------------------------------------------------
+                    # [핵심 수정] 진동 방지 필터 (이 부분이 빠져있었음!)
+                    # ----------------------------------------------------------
+                    
+                    # A. 데드존 (Deadzone): 3도(0.05rad) 미만의 오차는 무시 -> "떨림 멈춤"
+                    DEADZONE = math.radians(3.0) 
+                    angle_error = torch.where(torch.abs(angle_error) < DEADZONE, torch.tensor(0.0, device=self.device), angle_error)
+                    
+                    # B. 속도 제한 (Clamp): 한 번에 1.1도(0.02rad) 이상 움직이지 마라 -> "급발진 방지"
+                    MAX_STEP = 0.06 
+                    angle_error_clamped = torch.clamp(angle_error, -MAX_STEP, MAX_STEP)
+                    
+                    # C. 최종 목표 = 현재 위치 + 제한된 오차
+                    self.target_grasp_angle[track_mask] = current_j6 + angle_error_clamped
+                    # ----------------------------------------------------------
+
                     self.target_grasp_width[track_mask] = max(0.0, pca_width_m - 0.01)
+                    
+                    # [4] 정렬 완료 판단 (오차가 5도 이내면 OK)
+                    if abs(math.degrees(angle_error.mean().item())) < 5.0:
+                        is_angle_aligned[track_mask] = True
             
-            # Track -> Approach
-            is_stable = (dist_cam_to_obj < 0.35) & (dist_cam_to_obj > 0.25) & (xy_error_cam < 0.10) & approach_mode
+            # Track -> Approach (진입 조건 강화)
+            # 기존: 거리와 위치만 맞으면 진입
+            # 수정: 각도(is_angle_aligned)까지 맞아야 진입 -> 진입 후에는 각도 업데이트 안 하므로 자연스럽게 "고정"됨
+            is_stable = (dist_cam_to_obj < 0.37) & (dist_cam_to_obj > 0.33) & (xy_error_cam < 0.10) & is_angle_aligned & approach_mode
+            
             self.stable_timer = torch.where(track_mask & is_stable, self.stable_timer + self.dt, torch.zeros_like(self.stable_timer))
-            self.grasp_phase[self.stable_timer > 0.7] = 1
+            self.grasp_phase[self.stable_timer > 0.5] = 1
             
-            # Approach -> Grasping
+            # Approach -> Grasping (기존 유지)
             is_approaching = (self.grasp_phase == 1)
             ready_to_grasp = is_approaching & (lateral_error < 0.04) & (axial_dist < 0.16) & grasp_mode
             self.grasp_phase[ready_to_grasp] = 2
 
             # [C] 로봇 제어 (Arm + Gripper)
             
-            # 1. Arm 이동
+            # 1. Arm 이동 (기존 유지)
             current_action_scale = self.action_scale_tensor.unsqueeze(-1)
             arm_targets = self.robot_dof_targets[:, :6]
             arm_speed_scales = self.robot_dof_speed_scales[:6]
@@ -1269,23 +1234,23 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # [Arm Freeze] Phase 2(Grasping)에서는 팔 위치 고정
             grasp_mask = (self.grasp_phase >= 2)
             if torch.any(grasp_mask):
-                # 현재 관절 각도를 목표값으로 덮어씌워 제자리에 멈추게 함
                 current_joints = self._robot.data.joint_pos[grasp_mask, :6]
-                self.robot_dof_targets[grasp_mask, :6] = current_joints
-
-            # 2. 손목 회전 제어 (Phase 1 이상)
+                self.robot_dof_targets[grasp_mask, :5] = current_joints
+            # 2. 손목 회전 제어 (Phase 0, 1)
+            # Phase 0: 매 스텝 업데이트되는 target_grasp_angle을 따라감 (Aligning)
+            # Phase 1: 업데이트가 멈춘(고정된) target_grasp_angle을 유지함 (Holding)
             align_mask = (self.grasp_phase < 2) 
             if torch.any(align_mask):
-                self.robot_dof_targets[align_mask, 6] = self.target_grasp_angle[align_mask]
+                # self.robot_dof_targets[align_mask, 5] = -self.target_grasp_angle[align_mask]
+                self.robot_dof_targets[align_mask, 5] = self.target_grasp_angle[align_mask]
 
-            # 3. 그리퍼 너비 제어
+            # 3. 그리퍼 너비 제어 (기존 유지)
             if hasattr(self, 'gripper_drive_idx'):
                 g_idx = self.gripper_drive_idx
                 open_mask = (self.grasp_phase < 2)
                 if torch.any(open_mask):
                     self.robot_dof_targets[open_mask, g_idx] = 0.0
                 if torch.any(grasp_mask):
-                    print("self.target_grasp_width[grasp_mask] :", self.target_grasp_width[grasp_mask])
                     self.robot_dof_targets[grasp_mask, g_idx] = self.target_grasp_width[grasp_mask]
 
             # ==================================================================
@@ -1300,20 +1265,27 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     cur_timer = self.stable_timer[env_idx].item()
                     cur_cam_dist = dist_cam_to_obj[env_idx].item()
                     cur_err = xy_error_cam[env_idx].item()
-                    print(f"[Phase 0: Track] {s_flag} | Time: {cur_timer:.2f}/0.7s | Cam Dist: {cur_cam_dist:.3f}m | Err: {cur_err:.3f}m")
+                    
+                    # [추가] 각도 오차 정보 출력
+                    angle_info = "Aligning..."
+                    if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info:
+                        angle_err = self.debug_grasp_info["angle"]
+                        angle_info = f"AngErr: {angle_err:.1f}°"
+                    
+                    print(f"[Phase 0: Track] {s_flag} | Time: {cur_timer:.2f}/0.7s | {angle_info} | Dist: {cur_cam_dist:.3f}m")
                     
                 elif phase == 1:
                     lat_err = lateral_error[env_idx].item()
                     ax_dist = axial_dist[env_idx].item()
                     latched_ang = math.degrees(self.target_grasp_angle[env_idx].item())
-                    print(f"[Phase 1: Appr ] 🚀 GOING! | Lat: {lat_err:.3f}m | Axial: {ax_dist:.3f}m (Target < 0.16) | Ang: {latched_ang:.1f}°")
+                    # 각도가 고정(Latched)되었음을 명시
+                    print(f"[Phase 1: Appr ] 🚀 APPROACH (Ang Locked) | Lat: {lat_err:.3f}m | Axial: {ax_dist:.3f}m | Ang: {latched_ang:.1f}°")
                     
                 elif phase >= 2:
                     latched_ang = math.degrees(self.target_grasp_angle[env_idx].item())
                     curr_width = self._robot.data.joint_pos[env_idx, self.gripper_drive_idx].item()
                     target_w = self.target_grasp_width[env_idx].item()
-                    # 0.0이 아니라 PCA 타겟 너비로 출력
-                    print(f"[Phase 2: Grasp] ✊ HOLDING (Freezed) | Angle: {latched_ang:.1f}° | Width: {curr_width*100:.1f}cm (Target: {target_w*100:.1f})")
+                    print(f"[Phase 2: Grasp] ✊ HOLDING (Freezed) | Angle: {latched_ang:.1f}° | Width: {curr_width*100:.1f}cm")
 
         # ======================================================================
         # [E] 공통 업데이트
@@ -1413,21 +1385,20 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         target_pos = self.robot_dof_targets.clone()
     
-        joint4_index = self._robot.find_joints(["joint4"])[0]
-        joint6_index = self._robot.find_joints(["joint6"])[0]
-        gripper_joint_idex = self._robot.find_joints(["drive_joint"])[0]
-        target_pos[:, joint4_index] = 0.0
         
-        if training_mode == False and approach_mode == True:
+        gripper_joint_idex = self._robot.find_joints(["drive_joint"])[0]
+        target_pos[:, self.joint4_index] = 0.0
+        
+        if training_mode == False : #and approach_mode == True:
             non_grasping_mask = (self.grasp_phase == 0)
             if torch.any(non_grasping_mask):
-                target_pos[non_grasping_mask, joint6_index] = 0.0
+                # target_pos[non_grasping_mask, joint6_index] = 0.0
                 target_pos[non_grasping_mask, gripper_joint_idex] =0.0
         else:
-            target_pos[:, joint6_index] = 0.0
+            target_pos[:, self.joint6_index] = 0.0
             target_pos[:, gripper_joint_idex] = 0.0
             
-        target_pos[:, joint6_index] = 0.0
+        # target_pos[:, self.joint6_index] = 0.0
                     
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
@@ -1475,103 +1446,216 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             rgb_data = self._camera.data.output["rgb"]
             depth_data = self._camera.data.output["depth"]
 
-            # 1. 결과를 하나의 변수로 받습니다.
             result = self.calculate_pca_grasping(rgb_data, depth_data)
 
-            # 2. 결과가 유효한지(None이 아닌지) 확인합니다.
+            # result가 None이면(모양 애매함), 아래 블록 실행 안 함 -> 이전 값 유지!
             if result is not None:
-                gripper_angle, gripper_width, center = result
-                if gripper_angle is not None:
+                raw_angle, raw_width, center = result
+                
+                if raw_angle is not None:
+                    # 초기값 설정
+                    if self.last_grasp_width == 0.0:
+                        self.last_grasp_angle = raw_angle
+                        self.last_grasp_width = raw_width
+                    
+                    # 1. 최단 경로 각도 차이 계산 (+89 -> -89 튐 방지)
+                    angle_diff = raw_angle - self.last_grasp_angle
+                    angle_diff = (angle_diff + 90) % 180 - 90  # 차이를 -90 ~ 90 사이로 변환
+                    
+                    # 2. 강력한 스무딩 (0.05 추천: 아주 천천히 변함)
+                    # self.smoothing_alpha 값을 __init__에서 0.05로 설정하세요!
+                    alpha = getattr(self, 'smoothing_alpha', 0.05) 
+                    
+                    smoothed_angle = self.last_grasp_angle + (alpha * angle_diff)
+                    
+                    # 범위 재조정
+                    while smoothed_angle > 90.0: smoothed_angle -= 180.0
+                    while smoothed_angle < -90.0: smoothed_angle += 180.0
+
+                    smoothed_width = (alpha * raw_width) + \
+                                     ((1.0 - alpha) * self.last_grasp_width)
+                    
+                    # 값 업데이트
+                    self.last_grasp_angle = smoothed_angle
+                    self.last_grasp_width = smoothed_width
+                    
                     self.debug_grasp_info = {
-                        "angle": gripper_angle,
-                        "width": gripper_width
+                        "angle": smoothed_angle,
+                        "width": smoothed_width
                     }
 
+    # def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
+    #     try:
+    #         # --- 1. 데이터 전처리 ---
+    #         if isinstance(rgb_image, torch.Tensor): rgb_image = rgb_image.cpu().numpy()
+    #         if isinstance(depth_image, torch.Tensor): depth_image = depth_image.cpu().numpy()
+
+    #         if rgb_image.ndim == 4: rgb_image = rgb_image[env_id]
+            
+    #         # Depth 차원 정리
+    #         if depth_image.ndim == 4: depth_image = depth_image[env_id]
+    #         elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: depth_image = depth_image[env_id]
+    #         if depth_image.ndim == 3 and depth_image.shape[-1] == 1: depth_image = depth_image.squeeze(-1)
+
+    #         # 포맷 변환
+    #         if rgb_image.shape[-1] == 4: rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
+    #         if rgb_image.dtype != np.uint8:
+    #             rgb_image = (rgb_image * 255).astype(np.uint8) if rgb_image.max() <= 1.1 else rgb_image.astype(np.uint8)
+
+    #         # --- 2. 물체 마스크 추출 ---
+    #         hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
+            
+    #         # [색상 범위] (물체에 맞춰 조정 필요)
+    #         # 캔(Potted Meat)의 경우 붉은색 계열이므로 두 범위 합쳐야 할 수 있음
+    #         # 머스타드(노란색) 예시:
+    #         lower_color = np.array([20, 100, 100]); upper_color = np.array([35, 255, 255])
+    #         mask = cv2.inRange(hsv, lower_color, upper_color)
+
+    #         # [핵심 1] 구멍 메우기 (Morphology Close)
+    #         # 물체 내부의 Depth 결측으로 인해 구멍이 뚫리면 PCA가 모서리를 잡습니다.
+    #         # 커널 크기를 키워서(5x5 -> 7x7) 확실하게 메워줍니다.
+    #         kernel = np.ones((7, 7), np.uint8)
+    #         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel) 
+    #         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel) # 노이즈 제거
+
+    #         # --- 3. 윤곽선 검출 ---
+    #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #         if not contours: return None
+            
+    #         max_contour = max(contours, key=cv2.contourArea)
+    #         if cv2.contourArea(max_contour) < 100: return None
+
+    #         # --- 4. PCA (각도 계산용) ---
+    #         pts = max_contour.reshape(-1, 2).astype(np.float64)
+    #         mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
+    #         cx, cy = int(mean[0][0]), int(mean[0][1])
+    #         center = (cx, cy)
+
+    #         # 각도는 PCA가 안정적임
+    #         major_axis = eigenvectors[0]
+    #         angle_rad = np.arctan2(major_axis[1], major_axis[0])
+    #         grasp_angle_deg = np.degrees(angle_rad)
+
+    #         # --- 5. MinAreaRect (너비 계산용) ---
+    #         # [핵심 2] PCA 분산 대신 '최소 외접 직사각형' 사용
+    #         rect = cv2.minAreaRect(max_contour)
+    #         (rect_center, (w, h), rect_angle) = rect
+            
+    #         # 물체의 '짧은 변'이 우리가 잡아야 할 너비입니다.
+    #         pixel_width = min(w, h) 
+
+    #         # --- 6. 실제 거리(Depth) 계산 ---
+    #         valid_depths = depth_image[(mask > 0) & (depth_image > 0)]
+            
+    #         if len(valid_depths) > 10:
+    #             d_val = np.median(valid_depths)
+    #         else:
+    #             # 마스크 내 유효값이 없으면 중심점 사용 (예외 처리)
+    #             if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
+    #                 d_val = depth_image[cy, cx]
+    #             else:
+    #                 d_val = 0.0
+
+    #         if d_val <= 0 or np.isnan(d_val): d_val = 0.4 # 기본값
+
+    #         # --- 7. 픽셀 -> 미터 변환 ---
+    #         intrinsics = self._camera.data.intrinsic_matrices[env_id]
+    #         fx = intrinsics[0, 0].item()
+            
+    #         real_width_m = d_val * (pixel_width / fx)
+
+    #         return grasp_angle_deg, real_width_m, center
+
+    #     except Exception as e:
+    #         return None
+    
     def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
         try:
-            # --- 1. 데이터 전처리 ---
+            # [1] 데이터 전처리
             if isinstance(rgb_image, torch.Tensor): rgb_image = rgb_image.cpu().numpy()
             if isinstance(depth_image, torch.Tensor): depth_image = depth_image.cpu().numpy()
 
             if rgb_image.ndim == 4: rgb_image = rgb_image[env_id]
-            
-            # Depth 차원 정리
             if depth_image.ndim == 4: depth_image = depth_image[env_id]
             elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: depth_image = depth_image[env_id]
             if depth_image.ndim == 3 and depth_image.shape[-1] == 1: depth_image = depth_image.squeeze(-1)
 
-            # 포맷 변환
             if rgb_image.shape[-1] == 4: rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
             if rgb_image.dtype != np.uint8:
                 rgb_image = (rgb_image * 255).astype(np.uint8) if rgb_image.max() <= 1.1 else rgb_image.astype(np.uint8)
 
-            # --- 2. 물체 마스크 추출 ---
+            # [2] 마스크 추출 및 노이즈 제거 (강력하게)
             hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
-            
-            # [색상 범위] (물체에 맞춰 조정 필요)
-            # 캔(Potted Meat)의 경우 붉은색 계열이므로 두 범위 합쳐야 할 수 있음
-            # 머스타드(노란색) 예시:
-            lower_color = np.array([20, 100, 100]); upper_color = np.array([35, 255, 255])
+            lower_color = np.array([20, 100, 100]); upper_color = np.array([35, 255, 255]) 
             mask = cv2.inRange(hsv, lower_color, upper_color)
 
-            # [핵심 1] 구멍 메우기 (Morphology Close)
-            # 물체 내부의 Depth 결측으로 인해 구멍이 뚫리면 PCA가 모서리를 잡습니다.
-            # 커널 크기를 키워서(5x5 -> 7x7) 확실하게 메워줍니다.
-            kernel = np.ones((7, 7), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel) 
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel) # 노이즈 제거
+            # 커널 크기 9x9 유지 (구멍 메우기)
+            kernel = np.ones((9, 9), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-            # --- 3. 윤곽선 검출 ---
+            # [3] 윤곽선 검출 및 단순화
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if not contours: return None
             
             max_contour = max(contours, key=cv2.contourArea)
-            if cv2.contourArea(max_contour) < 100: return None
+            if cv2.contourArea(max_contour) < 500: return None 
 
-            # --- 4. PCA (각도 계산용) ---
-            pts = max_contour.reshape(-1, 2).astype(np.float64)
-            mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
+            # [핵심] 윤곽선을 투박하게 만듦 (민감도 저하)
+            epsilon = 0.05 * cv2.arcLength(max_contour, True) # 0.02 -> 0.05로 둔감화
+            approx_contour = cv2.approxPolyDP(max_contour, epsilon, True)
+
+            # [4] PCA 계산
+            pts = approx_contour.reshape(-1, 2).astype(np.float64)
+            if pts.shape[0] < 2: return None # 점이 너무 적으면 패스
+
+            mean, eigenvectors, eigenvalues = cv2.PCACompute2(pts, mean=np.array([]))
             cx, cy = int(mean[0][0]), int(mean[0][1])
             center = (cx, cy)
 
-            # 각도는 PCA가 안정적임
+            # [핵심 필터] 고유값 비율 확인
+            major_eig = eigenvalues[0][0]
+            minor_eig = eigenvalues[1][0]
+            ratio = minor_eig / (major_eig + 1e-6)
+
+            # 비율이 0.6 이상이면(원/정사각형에 가까우면) 각도 계산 포기!
+            # -> None을 리턴하면 _apply_action에서 "이전 각도"를 유지함
+            if ratio > 0.75: 
+                return None 
+
+            # 각도 계산
             major_axis = eigenvectors[0]
             angle_rad = np.arctan2(major_axis[1], major_axis[0])
             grasp_angle_deg = np.degrees(angle_rad)
+            
+            grasp_angle_deg += 90.0
 
-            # --- 5. MinAreaRect (너비 계산용) ---
-            # [핵심 2] PCA 분산 대신 '최소 외접 직사각형' 사용
+            # [5] 각도 정규화 (-90 ~ +90)
+            while grasp_angle_deg > 90.0: grasp_angle_deg -= 180.0
+            while grasp_angle_deg < -90.0: grasp_angle_deg += 180.0
+
+            # [6] 너비 및 거리 계산
             rect = cv2.minAreaRect(max_contour)
-            (rect_center, (w, h), rect_angle) = rect
-            
-            # 물체의 '짧은 변'이 우리가 잡아야 할 너비입니다.
-            pixel_width = min(w, h) 
+            (_, (w, h), _) = rect
+            pixel_width = min(w, h)
 
-            # --- 6. 실제 거리(Depth) 계산 ---
             valid_depths = depth_image[(mask > 0) & (depth_image > 0)]
-            
             if len(valid_depths) > 10:
                 d_val = np.median(valid_depths)
             else:
-                # 마스크 내 유효값이 없으면 중심점 사용 (예외 처리)
-                if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
-                    d_val = depth_image[cy, cx]
-                else:
-                    d_val = 0.0
+                d_val = 0.4
+            
+            if d_val <= 0: d_val = 0.4
 
-            if d_val <= 0 or np.isnan(d_val): d_val = 0.4 # 기본값
-
-            # --- 7. 픽셀 -> 미터 변환 ---
             intrinsics = self._camera.data.intrinsic_matrices[env_id]
             fx = intrinsics[0, 0].item()
-            
             real_width_m = d_val * (pixel_width / fx)
 
             return grasp_angle_deg, real_width_m, center
 
-        except Exception as e:
-            return None
-            
+        except Exception:
+            return None        
+    
     # post-physics step calls
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         if hasattr(self, 'is_pview_fail'):
@@ -2275,6 +2359,16 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             - 1.0
         )
         
+        if not training_mode:
+            # 만약 학습 때 0도였다면 dof_pos_scaled에서도 해당 값을 넣어야 함.
+            dof_pos_scaled[:, 5] = 0.0 
+            
+            # 관절 속도도 마찬가지로 0으로 속임
+            joint_vel_masked = (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)
+            joint_vel_masked[:, 5] = 0.0
+        else:
+            joint_vel_masked = (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)
+        
         # [1] 월드 기준 실제 물체 위치
         box_pos_w_real = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
         
@@ -2321,7 +2415,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # 접근 시 목표 거리 (그리퍼 기준 4~5cm)
             target_dist = torch.where(
                 approach_mask, 
-                torch.tensor(self.tracking_distance - 0.1, device=self.device), 
+                torch.tensor(self.tracking_distance - 0.4, device=self.device), 
                 torch.tensor(self.tracking_distance, device=self.device)
             )
 
@@ -2634,9 +2728,13 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         box_pos_local = box_pos_w - self.scene.env_origins
         obj_z = box_pos_local[:, 2]
         
-        q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=self.device).repeat(self.num_envs, 1)
+        # q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=self.device).repeat(self.num_envs, 1)
+        q_cam_in_hand = torch.tensor([0.3536, -0.6124, 0.3536, 0.6124], device=self.device).repeat(self.num_envs, 1)
         
-        deg_bottom = -10.0; deg_middle = 0.0; deg_top = 10.0
+        deg_bottom = -20.0
+        deg_middle = 0.0
+        deg_top = 10.0
+        
         target_angle_deg = torch.full_like(obj_z, deg_middle)
         target_angle_deg = torch.where(obj_z < 0.30, torch.tensor(deg_bottom, device=self.device), target_angle_deg)
         target_angle_deg = torch.where(obj_z >= 0.65, torch.tensor(deg_top, device=self.device), target_angle_deg)
