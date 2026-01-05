@@ -77,9 +77,10 @@ class ObjectMoveType(Enum):
 object_move = ObjectMoveType.LINEAR
 
 training_mode = False
+experiment_mode = True
 
-approach_mode = False
-grasp_mode = False
+approach_mode = True
+grasp_mode = True
 
 camera_enable = True
 image_publish = True
@@ -604,7 +605,7 @@ class FrankaObjectTrackingEnvCfg(DirectRLEnvCfg):
     ## mustard
     box = RigidObjectCfg(
         prim_path="/World/envs/env_.*/base_link",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0, 0.08), rot=(0, 0, 0, 0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.4, 0, 0.08), rot=(1, 0.0, 0.0, 0.0)),
         spawn=UsdFileCfg(
             # usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/006_mustard_bottle/006_mustard_bottle.usd",
             usd_path="/home/nmail-njh/NMAIL/01_Project/Robot_Grasping/objects_usd/google_objects_usd/010_potted_meat_can/010_potted_meat_can.usd",
@@ -886,12 +887,22 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         self.stable_timer = torch.zeros(self.num_envs, device=self.device)
         self.holding_timer = torch.zeros(self.num_envs, device=self.device)
         
+        # [추가] 접근 단계 타이머 및 설정
+        self.approach_timer = torch.zeros(self.num_envs, device=self.device)
+        self.APPROACH_DURATION = 0.5  # [설정] 2초 동안 천천히 접근 (조절 가능)
+        
         self.is_collision = 0
         
         self.target_grasp_width = torch.zeros(self.num_envs, device=self.device)
         self.target_grasp_angle = torch.zeros(self.num_envs, device=self.device)
         
         self.tracking_distance = 0.35
+        self.is_approaching = 0
+        
+        self.is_approach_done = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        
+        self.is_grasp_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.success_timer = torch.zeros(self.num_envs, device=self.device)
         
     def publish_camera_data(self):
         env_id = 0
@@ -966,15 +977,15 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         q_conj = torch.cat([-q[:, :3], q[:, 3:4]], dim=-1)
         return q_conj
     
-    def compute_camera_world_pose(self, hand_pos, hand_rot):
+    def compute_camera_world_pose(self, hand_pos, hand_rot, env_ids=None):
         batch_size = hand_pos.shape[0]
         
         # cam_offset_pos = torch.tensor([0.07, 0.03, -0.13], device=hand_pos.device).repeat(batch_size, 1)
         # q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=hand_pos.device).repeat(batch_size, 1)
         
-        cam_offset_pos = torch.tensor([0.25, 0.1, -0.03], device=hand_pos.device).repeat(self.num_envs, 1)
+        cam_offset_pos = torch.tensor([0.25, 0.1, -0.03], device=hand_pos.device).repeat(batch_size, 1)
         # q_cam_in_hand = torch.tensor([0.5, -0.5, 0.5, 0.5], device=hand_pos.device).repeat(self.num_envs, 1)
-        q_cam_in_hand = torch.tensor([0.3536, -0.6124, 0.3536, 0.6124], device=hand_pos.device).repeat(self.num_envs, 1)
+        q_cam_in_hand = torch.tensor([0.3536, -0.6124, 0.3536, 0.6124], device=hand_pos.device).repeat(batch_size, 1)
 
         camera_rot_w, camera_pos_w_abs = tf_combine(
             hand_rot,
@@ -983,7 +994,14 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             cam_offset_pos      
         )
         
-        camera_pos_w = camera_pos_w_abs - self.scene.env_origins
+        if env_ids is not None:
+            origins = self.scene.env_origins[env_ids]
+        else:
+            # env_ids가 없으면 전체 환경이라고 가정
+            origins = self.scene.env_origins
+        
+        # camera_pos_w = camera_pos_w_abs - self.scene.env_origins
+        camera_pos_w = camera_pos_w_abs - origins
         return camera_pos_w, camera_rot_w
 
     def world_to_camera_pose(self, camera_pos_w, camera_rot_w, obj_pos_w, obj_rot_w):
@@ -1089,12 +1107,12 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         
         self._box = RigidObject(self.cfg.box)
         self.scene.rigid_objects["base_link"] = self._box     
-    
+      
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         
         # ======================================================================
-        # CASE 1: 학습 모드 (Training Mode) - 기존 동일
+        # CASE 1: 학습 모드 (Training Mode)
         # ======================================================================
         if training_mode:
             current_action_scale = self.action_scale_tensor.unsqueeze(-1)
@@ -1111,184 +1129,164 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 self.robot_dof_targets[:, g_idx] = self.robot_dof_upper_limits[g_idx]
 
         # ======================================================================
-        # CASE 2: 테스트 모드 (Test Mode) - [수정]
+        # CASE 2: 테스트 모드 (Test Mode)
         # ======================================================================
         else:            
-            # [A] 거리 및 벡터 오차 계산 (기존 유지)
+            # [A] 오차 및 거리 계산
             dist_cam_to_obj = torch.norm(self.box_pos_cam[:, :3], p=2, dim=-1)
             xy_error_cam = torch.norm(self.box_pos_cam[:, :2], p=2, dim=-1)
 
-            forward_local = torch.tensor([0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1)
-            gripper_forward_w = tf_vector(self.robot_grasp_rot, forward_local)
-            
-            rel_vec = self.box_grasp_pos - self.robot_grasp_pos 
-            axial_dist = torch.sum(rel_vec * gripper_forward_w, dim=-1)
-            lateral_vec = rel_vec - (axial_dist.unsqueeze(-1) * gripper_forward_w)
-            lateral_error = torch.norm(lateral_vec, p=2, dim=-1)
+            # 그리퍼 중심과 물체 중심 사이의 직선 거리 (파지 판단용)
+            dist_gripper_to_obj = torch.norm(self.box_grasp_pos - self.robot_grasp_pos, p=2, dim=-1)
 
-            # [B] 상태 머신 (Phase Transition)
+            # ------------------------------------------------------------------
+            # [B] 상태 머신 (Phase Transition) - **기존 로직 복구됨**
+            # ------------------------------------------------------------------
             
-            # # Phase 0: Tracking (추적 + 각도 정렬)
-            # track_mask = (self.grasp_phase == 0)
-            
-            # # [추가] 각도가 정렬되었는지 확인하는 플래그
-            # is_angle_aligned = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-
-            # if torch.any(track_mask):
-            #     if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
-            #         # [1] PCA 목표 각도 가져오기 (절대 각도)
-            #         pca_angle_deg = self.debug_grasp_info["angle"]
-            #         pca_width_m = self.debug_grasp_info["width"]
-            #         pca_rad = math.radians(pca_angle_deg)
-                    
-            #         # [2] 현재 로봇 손목 각도
-            #         current_j6 = self._robot.data.joint_pos[track_mask, 5]
-                    
-            #         # [3] 핵심 수정: 무한 회전 방지 로직
-            #         # 목표는 "현재 각도에서 가장 가까운 PCA 각도(180도 대칭 고려)"로 설정해야 함
-                    
-            #         # 오차 계산 (PCA - 현재)
-            #         angle_error = pca_rad - current_j6
-                    
-            #         # 180도 대칭성(Modulus) 적용: 오차를 -90도 ~ +90도 사이로 강제 변환
-            #         # 예: 오차가 170도면 -> -10도로 변환 (반대로 10도만 돌면 되니까)
-            #         angle_error = (angle_error + (torch.pi / 2)) % torch.pi - (torch.pi / 2)
-                    
-            #         # 최종 목표 = 현재 위치 + 보정된 오차
-            #         # 이렇게 하면 절대 계속 돌지 않고 딱 필요한 만큼만 움직임
-            #         self.target_grasp_angle[track_mask] = current_j6 + angle_error
-                    
-            #         self.target_grasp_width[track_mask] = max(0.0, pca_width_m - 0.01)
-                    
-            #         # [4] 정렬 완료 판단 (오차가 10도 이내면 OK)
-            #         if abs(math.degrees(angle_error.mean().item())) < 10.0:
-            #             is_angle_aligned[track_mask] = True
-            
-            # Phase 0: Tracking (추적 + 각도 정렬)
+            # --- Phase 0: Tracking (추적 + 각도 정렬) ---
             track_mask = (self.grasp_phase == 0)
             
-            # [추가] 각도가 정렬되었는지 확인하는 플래그
-            is_angle_aligned = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-
+            # [기존 로직 유지] PCA 각도 정렬
             if torch.any(track_mask):
                 if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info is not None:
-                    # [1] PCA 목표 각도 가져오기
                     pca_angle_deg = self.debug_grasp_info["angle"]
                     pca_width_m = self.debug_grasp_info["width"]
                     pca_rad = math.radians(pca_angle_deg)
                     
-                    # [2] 현재 로봇 손목 각도
                     current_j6 = self._robot.data.joint_pos[track_mask, 5]
                     
-                    # [3] 오차 계산 (최단 경로)
                     angle_error = pca_rad - current_j6
                     angle_error = (angle_error + (torch.pi / 2)) % torch.pi - (torch.pi / 2)
                     
-                    # ----------------------------------------------------------
-                    # [핵심 수정] 진동 방지 필터 (이 부분이 빠져있었음!)
-                    # ----------------------------------------------------------
-                    
-                    # A. 데드존 (Deadzone): 3도(0.05rad) 미만의 오차는 무시 -> "떨림 멈춤"
                     DEADZONE = math.radians(3.0) 
                     angle_error = torch.where(torch.abs(angle_error) < DEADZONE, torch.tensor(0.0, device=self.device), angle_error)
                     
-                    # B. 속도 제한 (Clamp): 한 번에 1.1도(0.02rad) 이상 움직이지 마라 -> "급발진 방지"
                     MAX_STEP = 0.20
                     angle_error_clamped = torch.clamp(angle_error, -MAX_STEP, MAX_STEP)
                     
-                    # C. 최종 목표 = 현재 위치 + 제한된 오차
                     self.target_grasp_angle[track_mask] = current_j6 + angle_error_clamped
-                    # ----------------------------------------------------------
-
                     self.target_grasp_width[track_mask] = max(0.0, pca_width_m - 0.01)
-                    
-                    # [4] 정렬 완료 판단 (오차가 5도 이내면 OK)
-                    if abs(math.degrees(angle_error.mean().item())) < 5.0:
-                        is_angle_aligned[track_mask] = True
             
-            # Track -> Approach (진입 조건 강화)
-            # 기존: 거리와 위치만 맞으면 진입
-            # 수정: 각도(is_angle_aligned)까지 맞아야 진입 -> 진입 후에는 각도 업데이트 안 하므로 자연스럽게 "고정"됨
-            is_stable = (dist_cam_to_obj < 0.37) & (dist_cam_to_obj > 0.33) & (xy_error_cam < 0.10) & is_angle_aligned & approach_mode
-            
+            # [기존 로직 유지] Track -> Approach 전환 조건
+            is_stable = approach_mode & (dist_cam_to_obj < 0.40) & (dist_cam_to_obj > 0.30) & (xy_error_cam < 0.10) 
             self.stable_timer = torch.where(track_mask & is_stable, self.stable_timer + self.dt, torch.zeros_like(self.stable_timer))
-            self.grasp_phase[self.stable_timer > 0.5] = 1
+            self.grasp_phase[self.stable_timer > 0.2] = 1
             
-            # Approach -> Grasping (기존 유지)
-            is_approaching = (self.grasp_phase == 1)
-            ready_to_grasp = is_approaching & (lateral_error < 0.04) & (axial_dist < 0.16) & grasp_mode
-            self.grasp_phase[ready_to_grasp] = 2
+            # [기존 로직 유지] Phase 1: Approach Timer
+            approach_mask = (self.grasp_phase == 1)
+            self.approach_timer = torch.where(approach_mask, self.approach_timer + self.dt, torch.zeros_like(self.approach_timer))
+            
+            # *Phase 2로 넘어가는 코드는 삭제함 (Phase 1 상태에서 거리 조건으로 잡기 수행)*
 
-            # [C] 로봇 제어 (Arm + Gripper)
+            # ------------------------------------------------------------------
+            # [C] 로봇 제어 (Arm + Gripper) - **여기에 Freeze 기능 추가**
+            # ------------------------------------------------------------------
             
-            # 1. Arm 이동 (기존 유지)
+            # 1. Arm 이동 목표 계산 (기존 추적 로직)
             current_action_scale = self.action_scale_tensor.unsqueeze(-1)
             arm_targets = self.robot_dof_targets[:, :6]
             arm_speed_scales = self.robot_dof_speed_scales[:6]
-            new_arm_targets = arm_targets + arm_speed_scales * self.dt * self.actions * current_action_scale
             
-            lower_limits = self.robot_dof_lower_limits[:6]
-            upper_limits = self.robot_dof_upper_limits[:6]
-            self.robot_dof_targets[:, :6] = torch.clamp(new_arm_targets, lower_limits, upper_limits)
-
-            # [Arm Freeze] Phase 2(Grasping)에서는 팔 위치 고정
-            grasp_mask = (self.grasp_phase >= 2)
-            if torch.any(grasp_mask):
-                current_joints = self._robot.data.joint_pos[grasp_mask, :6]
-                self.robot_dof_targets[grasp_mask, :5] = current_joints
-            # 2. 손목 회전 제어 (Phase 0, 1)
-            # Phase 0: 매 스텝 업데이트되는 target_grasp_angle을 따라감 (Aligning)
-            # Phase 1: 업데이트가 멈춘(고정된) target_grasp_angle을 유지함 (Holding)
-            align_mask = (self.grasp_phase < 2) 
-            if torch.any(align_mask):
-                # self.robot_dof_targets[align_mask, 5] = -self.target_grasp_angle[align_mask]
-                self.robot_dof_targets[align_mask, 5] = self.target_grasp_angle[align_mask]
-
-            # 3. 그리퍼 너비 제어 (기존 유지)
+            # 원래 가려고 했던 위치 (Tracking Target)
+            calculated_targets = arm_targets + arm_speed_scales * self.dt * self.actions * current_action_scale
+            
+            
             if hasattr(self, 'gripper_drive_idx'):
                 g_idx = self.gripper_drive_idx
-                open_mask = (self.grasp_phase < 2)
-                if torch.any(open_mask):
-                    self.robot_dof_targets[open_mask, g_idx] = 0.0
-                if torch.any(grasp_mask):
-                    self.robot_dof_targets[grasp_mask, g_idx] = self.target_grasp_width[grasp_mask]
+                
+                # [1] 닫힘 명령 조건: 거리 6cm 이내면 닫도록 되어 있음
+                is_in_grasp_zone = (dist_gripper_to_obj < 0.07)
+                
+                # [2] 힘 감지 조건 (Contact Sensor 활용)
+                # net_forces_w: (num_envs, num_sensor_bodies, 3)
+                # 그리퍼의 모든 링크(finger, knuckle 등) 중 가장 강한 힘을 측정
+                all_contact_forces = torch.norm(self._contact_sensor.data.net_forces_w, p=2, dim=-1)
+                max_contact_force = torch.max(all_contact_forces, dim=-1)[0]
+                
+                # 임계값 설정 (Threshold)
+                # 물체를 꽉 쥐면 반발력이 생김. 5.0N 이상이면 잡은 것으로 간주
+                # (너무 낮으면 스치기만 해도 멈추고, 너무 높으면 안 멈출 수 있으니 테스트 필요)
+                is_force_applied = (max_contact_force > 1.0)
+                
+                # [최종 판단] 
+                # "닫으려고 했는데(Zone)" + "힘이 들어간다(Force)" = 잡았다!
+                current_grasped = is_in_grasp_zone & is_force_applied
+
+                # [Latch] 한 번 잡으면 놓치지 않도록 상태 저장
+                self.is_grasp_success = self.is_grasp_success | current_grasped
+                
+                self.success_timer = torch.where(
+                    self.is_grasp_success,
+                    self.success_timer + self.dt,
+                    self.success_timer
+                )
+                # print("self.success_timer :", self.success_timer)
+
+                # --- Arm 제어 적용 (Freeze) ---
+                current_arm_joints = self._robot.data.joint_pos[:, :6]
+                
+                # 성공 상태(Latch)가 True이면 현재 위치 유지 (Freeze)
+                final_arm_targets = torch.where(
+                    self.is_grasp_success.unsqueeze(-1),
+                    current_arm_joints, 
+                    calculated_targets
+                )
+                
+                # Limit 적용
+                lower_limits = self.robot_dof_lower_limits[:6]
+                upper_limits = self.robot_dof_upper_limits[:6]
+                self.robot_dof_targets[:, :6] = torch.clamp(final_arm_targets, lower_limits, upper_limits)
+                
+                # --- Wrist(손목) 제어 ---
+                # 잡은 후에는 손목 회전도 멈춤
+                self.robot_dof_targets[:, 5] = torch.where(
+                    self.is_grasp_success,
+                    current_arm_joints[:, 5],
+                    self.target_grasp_angle[:]
+                )
+
+                # --- Gripper 제어 ---
+                # 파지 영역에 있거나, 이미 잡았다면 계속 꽉 닫음 (힘 유지)
+                should_close = is_in_grasp_zone | self.is_grasp_success 
+
+                target_val = torch.where(
+                    should_close, 
+                    torch.tensor(20.0, device=self.device), # Close (Max Force)
+                    torch.tensor(0.0, device=self.device)   # Open
+                )
+                self.robot_dof_targets[:, g_idx] = target_val
+                
+            else:
+                self.robot_dof_targets[:, :6] = calculated_targets
 
             # ==================================================================
-            # [D] 실시간 상태 모니터링 출력
+            # [D] 로그 출력
             # ==================================================================
             if self.log_counter % 20 == 0:
                 env_idx = 0
                 phase = self.grasp_phase[env_idx].item()
+                d_val = dist_gripper_to_obj[env_idx].item()
+                
+                # 로그 확인용 변수 추출
+                force_val = max_contact_force[env_idx].item()
                 
                 if phase == 0:
-                    s_flag = "✅ STABLE" if is_stable[env_idx].item() else "❌ UNSTABLE"
                     cur_timer = self.stable_timer[env_idx].item()
-                    cur_cam_dist = dist_cam_to_obj[env_idx].item()
-                    cur_err = xy_error_cam[env_idx].item()
-                    
-                    # [추가] 각도 오차 정보 출력
-                    angle_info = "Aligning..."
-                    if hasattr(self, 'debug_grasp_info') and self.debug_grasp_info:
-                        angle_err = self.debug_grasp_info["angle"]
-                        angle_info = f"AngErr: {angle_err:.1f}°"
-                    
-                    print(f"[Phase 0: Track] {s_flag} | Time: {cur_timer:.2f}/0.7s | {angle_info} | Dist: {cur_cam_dist:.3f}m")
+                    s_flag = "✅ STABLE" if is_stable[env_idx].item() else "❌ UNSTABLE"
+                    print(f"[Phase 0: Track] {s_flag} | Time: {cur_timer:.2f}s")
                     
                 elif phase == 1:
-                    lat_err = lateral_error[env_idx].item()
-                    ax_dist = axial_dist[env_idx].item()
-                    latched_ang = math.degrees(self.target_grasp_angle[env_idx].item())
-                    # 각도가 고정(Latched)되었음을 명시
-                    print(f"[Phase 1: Appr ] 🚀 APPROACH (Ang Locked) | Lat: {lat_err:.3f}m | Axial: {ax_dist:.3f}m | Ang: {latched_ang:.1f}°")
+                    is_f = self.is_grasp_success[env_idx].item()
                     
-                elif phase >= 2:
-                    latched_ang = math.degrees(self.target_grasp_angle[env_idx].item())
-                    curr_width = self._robot.data.joint_pos[env_idx, self.gripper_drive_idx].item()
-                    target_w = self.target_grasp_width[env_idx].item()
-                    print(f"[Phase 2: Grasp] ✊ HOLDING (Freezed) | Angle: {latched_ang:.1f}° | Width: {curr_width*100:.1f}cm")
+                    if is_f:
+                        print(f"[Phase 1] 🛑 FROZEN (Force: {force_val:.1f}N) | Dist: {d_val:.3f}")
+                    elif d_val < 0.06:
+                        print(f"[Phase 1] ✊ CLOSING (Force: {force_val:.1f}N)")
+                    else:
+                        print(f"[Phase 1] 🚀 APPROACH (Dist: {d_val:.3f})")
 
         # ======================================================================
-        # [E] 공통 업데이트
+        # [E] 공통 업데이트 (이하 기존 코드 동일)
         # ======================================================================
         self.cfg.current_time += self.dt
         if image_publish:   
@@ -1298,7 +1296,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                 rclpy.spin_once(self.node, timeout_sec=0.001)
                 self.last_publish_time = 0.0
 
-        # [F] 물체 이동 로직 (기존 코드 유지)
+        # [F] 물체 이동 로직 (기존 코드 동일)
         static_mask = (self.object_move_state == self.MOVE_STATE_STATIC)
         static_env_ids = torch.where(static_mask)[0]
         if len(static_env_ids) > 0:
@@ -1329,33 +1327,28 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
                 mask_lv1 = (current_levels == 1); mask_lv2 = (current_levels == 2)
                 
-                if torch.any(mask_lv1): # Level 1 Logic
+                if torch.any(mask_lv1): 
                     ids_l1 = env_ids_to_update[mask_lv1]
                     axes = self.level1_axis_mode[ids_l1]
-                    
                     for ax_idx in range(3):
                         cond = (axes == ax_idx)
                         cur_val = curr_target_local[mask_lv1, ax_idx] 
                         min_v, max_v = list(rand_pos_range.values())[ax_idx]
-                        
                         next_val = torch.where(
                             torch.abs(cur_val - max_v) < torch.abs(cur_val - min_v), 
                             torch.tensor(min_v, device=self.device), 
                             torch.tensor(max_v, device=self.device)
                         )
-                        
                         final_target[mask_lv1, ax_idx] = torch.where(cond, next_val, cur_val)
-                        
                         for other_ax in range(3):
                             if other_ax != ax_idx: 
                                 cur_val_other = curr_target_local[mask_lv1, other_ax]
                                 final_target[mask_lv1, other_ax] = torch.where(cond, cur_val_other, final_target[mask_lv1, other_ax])
 
-                if torch.any(mask_lv2): # Level 2 Logic
+                if torch.any(mask_lv2): 
                     ids_l2 = env_ids_to_update[mask_lv2]
                     planes = self.level2_plane_mode[ids_l2]
                     dim_map = {0:2, 1:1, 2:0}
-                    
                     for p_idx, dim in dim_map.items():
                         cond = (planes == p_idx)
                         cur_val = curr_target_local[mask_lv2, dim]
@@ -1384,7 +1377,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         global robot_init_pose
         
         target_pos = self.robot_dof_targets.clone()
-    
         
         gripper_joint_idex = self._robot.find_joints(["drive_joint"])[0]
         target_pos[:, self.joint4_index] = 0.0
@@ -1397,8 +1389,8 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         else:
             target_pos[:, self.joint6_index] = 0.0
             target_pos[:, gripper_joint_idex] = 0.0
-            
-        # target_pos[:, self.joint6_index] = 0.0
+
+        # target_pos[:, gripper_joint_idex] = 40.0
                     
         if training_mode == False and robot_fix == False:
             if robot_action and robot_init_pose:
@@ -1483,91 +1475,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                         "angle": smoothed_angle,
                         "width": smoothed_width
                     }
-
-    # def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
-    #     try:
-    #         # --- 1. 데이터 전처리 ---
-    #         if isinstance(rgb_image, torch.Tensor): rgb_image = rgb_image.cpu().numpy()
-    #         if isinstance(depth_image, torch.Tensor): depth_image = depth_image.cpu().numpy()
-
-    #         if rgb_image.ndim == 4: rgb_image = rgb_image[env_id]
-            
-    #         # Depth 차원 정리
-    #         if depth_image.ndim == 4: depth_image = depth_image[env_id]
-    #         elif depth_image.ndim == 3 and depth_image.shape[-1] != 1: depth_image = depth_image[env_id]
-    #         if depth_image.ndim == 3 and depth_image.shape[-1] == 1: depth_image = depth_image.squeeze(-1)
-
-    #         # 포맷 변환
-    #         if rgb_image.shape[-1] == 4: rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
-    #         if rgb_image.dtype != np.uint8:
-    #             rgb_image = (rgb_image * 255).astype(np.uint8) if rgb_image.max() <= 1.1 else rgb_image.astype(np.uint8)
-
-    #         # --- 2. 물체 마스크 추출 ---
-    #         hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
-            
-    #         # [색상 범위] (물체에 맞춰 조정 필요)
-    #         # 캔(Potted Meat)의 경우 붉은색 계열이므로 두 범위 합쳐야 할 수 있음
-    #         # 머스타드(노란색) 예시:
-    #         lower_color = np.array([20, 100, 100]); upper_color = np.array([35, 255, 255])
-    #         mask = cv2.inRange(hsv, lower_color, upper_color)
-
-    #         # [핵심 1] 구멍 메우기 (Morphology Close)
-    #         # 물체 내부의 Depth 결측으로 인해 구멍이 뚫리면 PCA가 모서리를 잡습니다.
-    #         # 커널 크기를 키워서(5x5 -> 7x7) 확실하게 메워줍니다.
-    #         kernel = np.ones((7, 7), np.uint8)
-    #         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel) 
-    #         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel) # 노이즈 제거
-
-    #         # --- 3. 윤곽선 검출 ---
-    #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    #         if not contours: return None
-            
-    #         max_contour = max(contours, key=cv2.contourArea)
-    #         if cv2.contourArea(max_contour) < 100: return None
-
-    #         # --- 4. PCA (각도 계산용) ---
-    #         pts = max_contour.reshape(-1, 2).astype(np.float64)
-    #         mean, eigenvectors, _ = cv2.PCACompute2(pts, mean=np.array([]))
-    #         cx, cy = int(mean[0][0]), int(mean[0][1])
-    #         center = (cx, cy)
-
-    #         # 각도는 PCA가 안정적임
-    #         major_axis = eigenvectors[0]
-    #         angle_rad = np.arctan2(major_axis[1], major_axis[0])
-    #         grasp_angle_deg = np.degrees(angle_rad)
-
-    #         # --- 5. MinAreaRect (너비 계산용) ---
-    #         # [핵심 2] PCA 분산 대신 '최소 외접 직사각형' 사용
-    #         rect = cv2.minAreaRect(max_contour)
-    #         (rect_center, (w, h), rect_angle) = rect
-            
-    #         # 물체의 '짧은 변'이 우리가 잡아야 할 너비입니다.
-    #         pixel_width = min(w, h) 
-
-    #         # --- 6. 실제 거리(Depth) 계산 ---
-    #         valid_depths = depth_image[(mask > 0) & (depth_image > 0)]
-            
-    #         if len(valid_depths) > 10:
-    #             d_val = np.median(valid_depths)
-    #         else:
-    #             # 마스크 내 유효값이 없으면 중심점 사용 (예외 처리)
-    #             if 0 <= cy < depth_image.shape[0] and 0 <= cx < depth_image.shape[1]:
-    #                 d_val = depth_image[cy, cx]
-    #             else:
-    #                 d_val = 0.0
-
-    #         if d_val <= 0 or np.isnan(d_val): d_val = 0.4 # 기본값
-
-    #         # --- 7. 픽셀 -> 미터 변환 ---
-    #         intrinsics = self._camera.data.intrinsic_matrices[env_id]
-    #         fx = intrinsics[0, 0].item()
-            
-    #         real_width_m = d_val * (pixel_width / fx)
-
-    #         return grasp_angle_deg, real_width_m, center
-
-    #     except Exception as e:
-    #         return None
     
     def calculate_pca_grasping(self, rgb_image, depth_image, env_id=0):
         try:
@@ -1673,6 +1580,11 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
     
         else:
             terminated = torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+        
+        if not training_mode:
+            # 기존 종료 조건(실패) OR 파지 성공(is_grasp_success)
+            time_up = (self.success_timer >= 1.0)
+            terminated = terminated | time_up
         
         truncated = self.episode_length_buf >= self.max_episode_length + add_episode_length
 
@@ -2004,12 +1916,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         # [공통] 최종 목표 적용 및 이동 벡터 계산
         self.target_box_pos[env_ids] = target_pos + self.scene.env_origins[env_ids]
 
-        # direction = self.target_box_pos[env_ids] - self.new_box_pos_rand[env_ids]
-        # direction_norm = torch.norm(direction, p=2, dim=-1, keepdim=True) + 1e-6
-        # speed = self.obj_speed[env_ids].unsqueeze(-1)
-        
-        # self.rand_pos_step[env_ids] = (direction / direction_norm * speed)
-
         # [로봇 자세 초기화] (기존 코드 유지)
         if training_mode:
             joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
@@ -2056,13 +1962,34 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             # [핵심] 로봇 목표값 동기화 (튀는 현상 방지)
             self.robot_dof_targets[env_ids] = joint_pos 
             self.episode_init_joint_pos[env_ids] = joint_pos
-    
+        
+        elif experiment_mode:
+            joint_pos = self._robot.data.default_joint_pos[env_ids].clone()
+            joint1_idx = self._robot.find_joints(["joint1"])[0]
+            
+            target_pose_dict = pose_candidate["middle_close"]
+            
+            for i, env_id in enumerate(env_ids):
+                # 2. 모든 관절(Joint 1 포함)을 정의된 값 그대로 설정
+                for joint_name, pos in target_pose_dict.items():
+                    joint_idx = self._robot.find_joints(joint_name)[0]
+                    joint_pos[i, joint_idx] = pos
+                    
+            joint_pos[:, joint1_idx] = torch.clamp(joint_pos[:, joint1_idx], self.robot_dof_lower_limits[joint1_idx], self.robot_dof_upper_limits[joint1_idx])
+            joint_vel = torch.zeros_like(joint_pos)
+            
+            self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
+            self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+            
+            self.robot_dof_targets[env_ids] = joint_pos 
+            self.episode_init_joint_pos[env_ids] = joint_pos
+            
     def _reset_idx(self, env_ids: torch.Tensor | None):
         global reset_flag 
         if reset_flag:
-            if training_mode == False:
+            if training_mode == False and experiment_mode == False:
                 reset_flag = False
-            
+                
             # [신규 로직] 복합 조건 평가
             actual_lengths = self.episode_length_buf[env_ids].float() + 1e-6
 
@@ -2300,7 +2227,19 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
                     self.obj_speed[env_ids_level_5] = 0.60
                     self.action_scale_tensor[env_ids_level_5] = 3.0 # 로봇 속도 증가
                     self._perform_linear_reset(env_ids_level_5)
-
+            
+            elif experiment_mode:
+                self.action_scale_tensor[env_ids] = 3.0 # 로봇 속도 적절히 설정
+                
+                # 실험 설정: 이동 모드 및 속도 (여기서 난이도 조절)
+                self.object_move_state[env_ids] = self.MOVE_STATE_LINEAR
+                
+                # 예: 0.1 ~ 0.5 사이의 랜덤 속도 부여
+                rand_speed = torch.rand(len(env_ids), device=self.device) * 0.4 + 0.1
+                self.obj_speed[env_ids] = rand_speed
+                
+                self._perform_linear_reset(env_ids) # 랜덤 위치 재배치 호출
+            
             else: # training_mode == False (테스트 모드)
                 self.action_scale_tensor[env_ids] = 2.0 # (4.0이 적용됨)
 
@@ -2331,7 +2270,10 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.grasp_phase[env_ids] = 0
             self.stable_timer[env_ids] = 0.0
             self.holding_timer[env_ids] = 0.0
-        
+
+            self.is_grasp_success[env_ids] = False
+            self.success_timer[env_ids] = 0.0
+            
         self._compute_intermediate_values(env_ids)
 
         # 1. 월드 좌표 초기화
@@ -2340,7 +2282,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
 
         # 2. 카메라 좌표 초기화
         # camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos[env_ids], self.hand_rot[env_ids])
-        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.camera_link_pos[env_ids], self.camera_link_rot[env_ids])
+        camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.camera_link_pos[env_ids], self.camera_link_rot[env_ids], env_ids = env_ids)
         
         current_pos_c, _ = self.world_to_camera_pose(
             camera_pos_w, camera_rot_w,
@@ -2348,7 +2290,7 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_grasp_rot[env_ids]
         )
         self.prev_box_pos_c[env_ids] = current_pos_c[:, 0:3].clone()
-
+    
     def _get_observations(self) -> dict:
         self.current_joint_pos_buffer[:] = self._robot.data.joint_pos
         
@@ -2360,82 +2302,108 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
         )
         
         if not training_mode:
-            # 만약 학습 때 0도였다면 dof_pos_scaled에서도 해당 값을 넣어야 함.
             dof_pos_scaled[:, 5] = 0.0 
-            
-            # 관절 속도도 마찬가지로 0으로 속임
             joint_vel_masked = (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)
             joint_vel_masked[:, 5] = 0.0
         else:
             joint_vel_masked = (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)
         
-        # [1] 월드 기준 실제 물체 위치
         box_pos_w_real = self._box.data.body_link_pos_w[:, 0, 0:3] - self.scene.env_origins
+        final_box_pos_w = box_pos_w_real
         
-        # [2] 카메라 월드 위치 계산
-        # camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.hand_pos, self.hand_rot)
         camera_pos_w, camera_rot_w = self.compute_camera_world_pose(self.camera_link_pos, self.camera_link_rot)
         
-        if not training_mode:
-            approach_mask = (self.grasp_phase == 1) # 접근 단계
-            
-            if torch.any(approach_mask):
-                base_offset = camera_pos_w - self.robot_grasp_pos # (N, 3)
-                forward_local = torch.tensor([0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1)
-                gripper_forward_w = tf_vector(self.robot_grasp_rot, forward_local)
-                
-                depth_bias = 0.07
-                final_offset = base_offset + (gripper_forward_w * depth_bias)
-                
-                box_pos_w_target = box_pos_w_real + final_offset
-                
-                final_box_pos_w = box_pos_w_real.clone()
-                final_box_pos_w[approach_mask] = box_pos_w_target[approach_mask]
-            
-            else:
-                final_box_pos_w = box_pos_w_real
-        else:
-            final_box_pos_w = box_pos_w_real
-        
-        # [3] 관측값 변환 (월드 좌표 -> 카메라 좌표계)
         box_pos_c_cur, _ = self.world_to_camera_pose(
             camera_pos_w, camera_rot_w,
-            final_box_pos_w, # 조작된 월드 좌표 (Tracking: 실제 / Approach: 가상)
+            final_box_pos_w, 
             self.box_grasp_rot
         )
         box_pos_c_cur = box_pos_c_cur[:, 0:3]
         
-        obs_box_pos = box_pos_c_cur
+        # ----------------------------------------------------------------------
+        # [2] Approach 단계: 선형 보간(Linear Interpolation) 적용
+        # ----------------------------------------------------------------------
+        obs_box_pos = box_pos_c_cur.clone()
+        approach_mask = (self.grasp_phase >= 1) 
+        
+        self.is_approach_done = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        
+        # 스무딩을 위한 변수 초기화 (기본값: Tracking Distance)
+        final_target_dist = torch.tensor(self.tracking_distance, device=self.device).repeat(self.num_envs)
 
-        # [4] 목표 거리 설정
+        if torch.any(approach_mask):
+            # A. 그리퍼(TCP)의 카메라 좌표계 위치 계산 (자동)
+            gripper_pos_w = self.robot_grasp_pos - self.scene.env_origins
+            gripper_rot_w = self.robot_grasp_rot 
+
+            # (N, 3) 전체 계산
+            gripper_pos_in_cam_all, _ = self.world_to_camera_pose(
+                camera_pos_w, camera_rot_w, 
+                gripper_pos_w, 
+                gripper_rot_w
+            )
+            
+            # B. 수동 튜닝 오프셋
+            TUNING_OFFSET_X = 0.00
+            TUNING_OFFSET_Y = 0.04
+
+            # C. [핵심] 선형 보간 비율(Alpha) 계산
+            # alpha는 0.0 (진입 직후) ~ 1.0 (설정 시간 도달) 사이의 값
+            current_timer = self.approach_timer[approach_mask]
+            
+            # Division by zero 방지 및 0~1 클램핑
+            duration = max(self.APPROACH_DURATION, 0.1)
+            alpha = torch.clamp(current_timer / duration, 0.0, 1.0) # (M,)
+            
+            # --- 1. XY 오프셋 스무딩 적용 ---
+            # 목표 오프셋 (Full Offset)
+            target_offset_x = gripper_pos_in_cam_all[approach_mask, 0] - TUNING_OFFSET_X
+            target_offset_y = gripper_pos_in_cam_all[approach_mask, 1] - TUNING_OFFSET_Y
+            
+            # 오프셋을 alpha만큼만 적용 (서서히 적용됨)
+            obs_box_pos[approach_mask, 0] -= (target_offset_x * alpha)
+            obs_box_pos[approach_mask, 1] -= (target_offset_y * alpha)
+
+            # --- 2. Z(Depth) 스무딩 적용 ---
+            # 시작 지점: Tracking Distance (예: 0.4m)
+            # 종료 지점: Gripper Z Depth (예: 0.1m) + Margin
+            start_z = self.tracking_distance
+            
+            MARGIN_Z = -0.10
+            end_z = gripper_pos_in_cam_all[approach_mask, 2] + MARGIN_Z
+            
+            # 선형 보간 수식: Start + (End - Start) * alpha
+            smoothed_z = start_z + (end_z - start_z) * alpha
+            
+            # 계산된 스무딩 거리를 마스크에 맞게 할당
+            final_target_dist[approach_mask] = smoothed_z
+            
+            done_indices = (alpha >= 1.0)
+            self.is_approach_done[approach_mask] = done_indices
+
+        # ----------------------------------------------------------------------
+        # [3] 에러 계산 (Training vs Test 분기)
+        # ----------------------------------------------------------------------
         if training_mode:
             target_dist = torch.tensor(self.tracking_distance, device=self.device)
         else:
-            approach_mask = (self.grasp_phase == 1)
-            # 접근 시 목표 거리 (그리퍼 기준 4~5cm)
-            target_dist = torch.where(
-                approach_mask, 
-                torch.tensor(self.tracking_distance - 0.4, device=self.device), 
-                torch.tensor(self.tracking_distance, device=self.device)
-            )
+            # 위에서 계산한 스무딩된 거리를 사용
+            target_dist = final_target_dist
 
-        # [5] 최종 관측값 조립
-        current_depth = obs_box_pos[:, 2] # (N,)
+        current_depth = obs_box_pos[:, 2] 
         z_error = (current_depth - target_dist).unsqueeze(-1)
         xy_offset = torch.norm(obs_box_pos[:, 0:2], p=2, dim=-1).unsqueeze(-1)
         
+        # [4] 관측값 조립
         obs = torch.cat(
             (
                 dof_pos_scaled[:, :6], 
                 (self._robot.data.joint_vel * self.cfg.dof_velocity_scale)[:, :6],
-                
-                obs_box_pos, 
-                
-                box_pos_w_real, # 기록용은 실제 위치 유지
+                obs_box_pos,    
+                box_pos_w_real, 
                 self.prev_box_pos_w,
-                
-                z_error,
-                xy_offset,
+                z_error,        
+                xy_offset,      
             ),
             dim=-1,
         )
@@ -2480,196 +2448,6 @@ class FrankaObjectTrackingEnv(DirectRLEnv):
             self.box_local_rot[env_ids],
             self.box_local_pos[env_ids],
         )
-    
-    # def _compute_rewards(
-    #     self,
-    #     actions,
-    #     franka_grasp_pos,  
-    #     box_pos_w,     
-    #     franka_grasp_rot, 
-    #     box_rot_w,
-    #     box_pos_cam,      
-    #     box_rot_cam,
-    #     gripper_forward_axis,
-    #     gripper_up_axis,
-    # ):
-    #     # 커리큘럼 기반 가중치 설정 (Reward Scales)
-    #     levels = self.current_reward_level
-    #     max_idx = self.max_reward_level
-        
-    #     distance_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["distance"] for l in levels], device=self.device)
-    #     vector_align_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["vector_align"] for l in levels], device=self.device)
-    #     position_align_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["position_align"] for l in levels], device=self.device)
-    #     pview_reward_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["pview"] for l in levels], device=self.device)
-    #     joint_penalty_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["joint_penalty"] for l in levels], device=self.device)
-    #     blind_penalty_scale = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["reward_scales"]["blind_penalty"] for l in levels], device=self.device)
-        
-    #     # 커리큘럼 기반 마진 설정
-    #     distance_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["distance_margin"] for l in levels], device=self.device)
-    #     vector_align_margin_rad = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["vector_align_margin"] for l in levels], device=self.device)
-    #     position_align_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["position_align_margin"] for l in levels], device=self.device)
-    #     pview_margin_m = torch.tensor([reward_curriculum_levels[min(l.item(), max_idx)]["pview_margin"] for l in levels], device=self.device)
-        
-    #     ALPHA_DIST = 1.0 / (distance_margin_m + 1e-6)
-    #     ALPHA_VEC = 1.0 / (vector_align_margin_rad + 1e-6)
-    #     ALPHA_POS = 1.0 / (position_align_margin_m + 1e-6)
-    #     ALPHA_PVIEW = 1.0 / (pview_margin_m + 1e-6)
-        
-    #     # ESCAPE_GRADIENT = 0.005 
-        
-    #     ## R1: 거리 유지 보상 (Distance Reward) - [카메라 기준 수정]
-    #     # target_distance = 0.30
-    #     camera_real_distance = torch.norm(box_pos_cam, dim=-1)
-    #     distance_error = camera_real_distance - self.tracking_distance
-        
-    #     # 너무 가까울 때(음수)는 오차를 2배로 뻥튀기해서 패널티를 키움
-    #     weighted_error = torch.where(
-    #         distance_error < 0, 
-    #         torch.abs(distance_error) * 2.5,  # 가까우면 2.5배 더 민감하게 반응해라!
-    #         torch.abs(distance_error) * 1.0   # 멀면 그냥 원래대로
-    #     )
-        
-    #     distance_reward = torch.exp(-ALPHA_DIST * weighted_error)
-                
-    #     self.avg_distance_error_buf += distance_error
-    #     # self.episode_steps_buf += 1.0 # 매 스텝 1씩 증가
-
-    #     ## R2: 각도 정렬 보상 (Vector Alignment Reward)
-    #     box_pos_local = box_pos_w - self.scene.env_origins
-    #     obj_z = box_pos_local[:, 2]
-        
-    #     q_cam_in_hand = torch.tensor([0.7071, 0.0, 0.0, 0.7071], device=self.device).repeat(self.num_envs, 1)
-        
-    #     deg_bottom = -10.0
-    #     deg_middle =   0.0
-    #     deg_top    =  10.0
-
-    #     target_angle_deg = torch.full_like(obj_z, deg_middle)
-    #     target_angle_deg = torch.where(obj_z < 0.30, torch.tensor(deg_bottom, device=self.device), target_angle_deg)
-    #     target_angle_deg = torch.where(obj_z >= 0.65, torch.tensor(deg_top, device=self.device), target_angle_deg)
-
-    #     target_angle_rad = torch.deg2rad(target_angle_deg)
-
-    #     camera_rot_w = self.quat_mul(franka_grasp_rot, q_cam_in_hand)
-    #     camera_forward_axis_local = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(self.num_envs, 1)
-    #     camera_forward_world = tf_vector(camera_rot_w, camera_forward_axis_local)
-    #     actual_angle_rad = torch.asin(camera_forward_world[:, 2].clamp(-1.0, 1.0))
-        
-    #     angle_error_rad = torch.abs(actual_angle_rad - target_angle_rad)
-    #     vector_alignment_reward = torch.exp(-ALPHA_VEC * angle_error_rad)
-
-    #     ## R3: 그리퍼 위치 유지 보상 (Position Alignment Reward) - [카메라 기준 수정]
-    #     is_in_front_mask = box_pos_cam[:, 2] > 0 
-    #     center_offset_r3 = torch.norm(box_pos_cam[:, [0,1]], dim=-1)
-    #     position_alignment_reward_raw = torch.exp(-ALPHA_POS * center_offset_r3)
-        
-    #     position_alignment_reward = torch.where(
-    #         is_in_front_mask, 
-    #         position_alignment_reward_raw, 
-    #         torch.tensor(1e-6, device=self.device)
-    #     )
-                
-    #     ## R4: 시야 유지 보상 (PView Reward) - [수정 없음]
-    #     depth = torch.abs(box_pos_cam[:, 2]) + 1e-6
-    #     physical_offset = torch.norm(box_pos_cam[:, [0,1]], dim=-1)
-    #     view_error_ratio = physical_offset / depth
-
-    #     pview_positive_reward = (
-    #         torch.exp(-ALPHA_PVIEW * view_error_ratio) 
-    #     )
-    #     pview_reward = torch.where(is_in_front_mask, pview_positive_reward, torch.full_like(view_error_ratio, 1e-6))
-        
-    #     # R5: 충돌 패널티 (Collision Penalty)
-    #     # 그리퍼(핑거)에 가해지는 힘을 측정
-    #     contact_forces = torch.norm(self._contact_sensor.data.net_forces_w, p=2, dim=-1) 
-    #     max_contact_force = torch.max(contact_forces, dim=-1)[0]
-    #     self.is_collision = (max_contact_force > 1.0)
-        
-    #     collision_penalty = self.is_collision.float() * -8.0
-        
-    #     ## 접근 보상 (Approach Reward) - Shaping Reward
-    #     # if not hasattr(self, 'last_error'):
-    #     #     self.last_error = distance_error.clone()
-            
-    #     # error_improvement = (self.last_error - distance_error)
-    #     # approach_reward = torch.clamp(error_improvement, min=0.0) * 6.0
-    #     # self.last_error = distance_error.clone()
-        
-    #     # [수정 후 - 절대값 적용]
-    #     # 거리 오차의 절대값(순수하게 틀린 정도)을 따로 정의
-    #     abs_distance_error = torch.abs(distance_error) 
-
-    #     if not hasattr(self, 'last_error'):
-    #         self.last_error = abs_distance_error.clone()
-            
-    #     # [수정 1] 개선량: 절대값 오차가 줄어들었는지를 봐야 함
-    #     error_improvement = (self.last_error - abs_distance_error).clamp(min=0.0)
-        
-    #     # [조절] 20.0배는 너무 큽니다. 일단 5.0~10.0 정도로 낮춰서 테스트 권장
-    #     improvement_reward = error_improvement * 10.0 
-        
-    #     # [수정 2] 근접 유지: 여기는 distance_error가 음수여도 작동하도록 abs_distance_error 사용
-    #     proximity_bonus = torch.where(
-    #         abs_distance_error < distance_margin_m,
-    #         1.0 - (abs_distance_error / (distance_margin_m + 1e-6)), 
-    #         torch.zeros_like(abs_distance_error)
-    #     )
-        
-    #     approach_reward = improvement_reward + (proximity_bonus * 1.0)
-        
-    #     # 다음 스텝을 위해 저장
-    #     self.last_error = abs_distance_error.clone()
-        
-    #     # 최종 합산: (움직여서 얻는 점수) + (버텨서 얻는 점수)
-    #     approach_reward = improvement_reward + (proximity_bonus * 1.0)
-        
-    #     self.last_error = distance_error.clone()
-        
-    #     ## Joint 5 (손목) 범위 제한 보상 (Soft Limit)
-    #     joint5_val = self._robot.data.joint_pos[:, 4]
-        
-    #     # 제한 범위 설정 (라디안 변환)
-    #     limit_min = torch.deg2rad(torch.tensor(-30.0, device=self.device))
-    #     limit_max = torch.deg2rad(torch.tensor(-10.0, device=self.device))
-    
-    #     violation_min = torch.clamp(limit_min - joint5_val, min=0.0)
-    #     violation_max = torch.clamp(joint5_val - limit_max, min=0.0)
-        
-    #     total_violation = violation_min + violation_max
-    #     joint5_limit_penalty = (total_violation ** 2) * (-joint_penalty_scale)
-        
-    #     ## gating 기법
-    #     gating_factor = torch.pow(pview_reward, pview_reward_scale)
-    #     weighted_distance_reward = torch.pow(distance_reward, distance_reward_scale) * gating_factor
-        
-    #     task_reward = (
-    #         weighted_distance_reward * # (거리 * 시야)
-    #         torch.pow(vector_alignment_reward, vector_align_reward_scale) *
-    #         torch.pow(position_alignment_reward, position_align_reward_scale)
-    #     )
-        
-    #     # Blind Penalty (실패 비용 - 빼기)
-    #     # 시야를 놓치면 레벨에 따라 감점 (-0.1 ~ -1.0)
-    #     is_blind = self.is_pview_fail.float()
-    #     blind_penalty = is_blind * (-blind_penalty_scale)
-        
-    #     # 최종 합산
-    #     # (잘했니?) + (다가갔니?) - (놓쳤니?)
-    #     rewards = task_reward + approach_reward + blind_penalty + joint5_limit_penalty + + collision_penalty
-    #     self.last_step_reward = rewards.detach()
-        
-    #     # print("*" * 50)
-    #     # forces = self._contact_sensor.data.net_forces_w
-    #     # print("cotact_forces :", max_contact_force)
-    #     # print("camera_real_distance :",camera_real_distance)
-    #     # print("distance_reward :", distance_reward)
-    #     # print("distance_error :", distance_error)
-    #     # print("vector_alignment_reward :", vector_alignment_reward)
-    #     # print("position_alignment_reward :", position_alignment_reward)
-    #     # print("view_error_ratio :", view_error_ratio)
-    #     # print("pview_reward :", pview_reward)
-                
-    #     return rewards
     
     def _compute_rewards(
         self,
